@@ -8,13 +8,39 @@
 
 import os
 import json
+import logging
+import sys
 from typing import List, Dict, Any
 from loguru import logger
 from sqlalchemy import create_engine, select, func, ForeignKey, String, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
 
+# Define InterceptHandler to forward standard logging messages to loguru
+class InterceptHandler(logging.Handler):
+    def emit(self, record):
+        # Get corresponding Loguru level if it exists
+        try:
+            level = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        # Find caller from where originated the logged message
+        frame = sys._getframe(6)
+        depth = 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+# Configure standard logging to use InterceptHandler
+logging.basicConfig(handlers=[InterceptHandler()], level=logging.WARNING, force=True)
+
+# Set the sqlalchemy engine logger to INFO level so it emits logs
+logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
+
 DATABASE_URL = "sqlite:///the_ball_game.db"
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=False)
 
 class Base(DeclarativeBase):
     """Base class for SQLAlchemy declarative models."""
