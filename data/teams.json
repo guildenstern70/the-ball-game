@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Boston Red Sox",
+    "city": "Boston",
+    "nation": "USA",
+    "stadium_name": "Fenway Park"
+  },
+  {
+    "name": "New York Yankees",
+    "city": "New York",
+    "nation": "USA",
+    "stadium_name": "Yankee Stadium"
+  }
+]

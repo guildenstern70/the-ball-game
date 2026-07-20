@@ -8,9 +8,14 @@
 
 import sys
 from PyQt6.QtWidgets import QApplication, QMainWindow
+from loguru import logger
+from database import init_db
 
 def main() -> None:
-    print("The Ball Game v.0.1.0")
+    logger.info("The Ball Game v.0.1.0")
+    
+    # Initialize the database
+    init_db()
     
     app = QApplication(sys.argv)
     

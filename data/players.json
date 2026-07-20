@@ -1,0 +1,24 @@
+[
+  {
+    "name": "Rafael",
+    "surname": "Devers",
+    "team": "Boston Red Sox",
+    "physical_attributes": {
+      "height_cm": 183,
+      "weight_kg": 108,
+      "speed": 75,
+      "power": 92
+    }
+  },
+  {
+    "name": "Aaron",
+    "surname": "Judge",
+    "team": "New York Yankees",
+    "physical_attributes": {
+      "height_cm": 201,
+      "weight_kg": 128,
+      "speed": 82,
+      "power": 99
+    }
+  }
+]
