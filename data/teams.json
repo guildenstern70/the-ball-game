@@ -10,5 +10,23 @@
     "city": "New York",
     "nation": "USA",
     "stadium_name": "Yankee Stadium"
+  },
+  {
+    "name": "Los Angeles Dodgers",
+    "city": "Los Angeles",
+    "nation": "USA",
+    "stadium_name": "Dodger Stadium"
+  },
+  {
+    "name": "Chicago Cubs",
+    "city": "Chicago",
+    "nation": "USA",
+    "stadium_name": "Wrigley Field"
+  },
+  {
+    "name": "San Francisco Giants",
+    "city": "San Francisco",
+    "nation": "USA",
+    "stadium_name": "Oracle Park"
   }
 ]

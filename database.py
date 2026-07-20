@@ -66,6 +66,32 @@ class Team(Base):
     def __repr__(self) -> str:
         return f"<Team(name={self.name!r}, city={self.city!r}, nation={self.nation!r}, stadium={self.stadium_name!r})>"
 
+# Association table for Player <-> Position (Many-to-Many)
+from sqlalchemy import Table, Column
+player_positions = Table(
+    "player_positions",
+    Base.metadata,
+    Column("player_id", ForeignKey("players.id", ondelete="CASCADE"), primary_key=True),
+    Column("position_id", ForeignKey("positions.id", ondelete="CASCADE"), primary_key=True)
+)
+
+class Position(Base):
+    """Position database model."""
+    __tablename__ = "positions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+
+    # Many-to-many back-reference
+    players: Mapped[List["Player"]] = relationship(
+        "Player",
+        secondary=player_positions,
+        back_populates="preferred_positions"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Position(name={self.name!r})>"
+
 class Player(Base):
     """Player database model."""
     __tablename__ = "players"
@@ -81,37 +107,71 @@ class Player(Base):
     # Many-to-one relationship: Player -> Team
     team: Mapped["Team"] = relationship("Team", back_populates="players")
 
+    # Many-to-many relationship: Player -> Position
+    preferred_positions: Mapped[List["Position"]] = relationship(
+        "Position",
+        secondary=player_positions,
+        back_populates="players"
+    )
+
     def __repr__(self) -> str:
         return f"<Player(name={self.name!r}, surname={self.surname!r}, team_id={self.team_id})>"
+
+STANDARD_POSITIONS = [
+    "Pitcher",
+    "Catcher",
+    "First Base",
+    "Second Base",
+    "Third Base",
+    "Shortstop",
+    "Left Field",
+    "Center Field",
+    "Right Field"
+]
 
 def init_db() -> None:
     """Initialize the database.
     
     Creates tables if they do not exist.
-    If both teams and players tables are empty, seeds them from JSON files.
+    If database tables are empty, seeds them from JSON files.
     """
     # Create all tables if they don't exist
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        # Check if rows exist in both team and player tables
+        # Check if rows exist in team, player, and position tables
         try:
             team_count = session.scalar(select(func.count()).select_from(Team))
             player_count = session.scalar(select(func.count()).select_from(Player))
+            position_count = session.scalar(select(func.count()).select_from(Position))
         except Exception as e:
             logger.error(f"Error checking database tables: {e}")
-            # If checking failed, we might have an inconsistent state, recreate tables
             Base.metadata.create_all(engine)
             team_count = 0
             player_count = 0
+            position_count = 0
 
-        # If both tables have at least one row, we do nothing
+        # If both teams and players have data, we skip seeding
         if team_count is not None and team_count > 0 and player_count is not None and player_count > 0:
-            logger.info(f"Database already initialized: found {team_count} teams and {player_count} players. Skipping seed.")
+            logger.info(
+                f"Database already initialized: found {team_count} teams, "
+                f"{player_count} players, and {position_count} positions. Skipping seed."
+            )
             return
 
-        logger.info("Initializing database from JSON files...")
+        logger.info("Initializing database and seeding records...")
 
+        # 1. Seed positions first if not present
+        pos_map = {}
+        for pos_name in STANDARD_POSITIONS:
+            pos = session.scalar(select(Position).where(Position.name == pos_name))
+            if not pos:
+                pos = Position(name=pos_name)
+                session.add(pos)
+                session.flush()
+            pos_map[pos_name] = pos
+
+        # Load team and player seed files
         teams_file = os.path.join("data", "teams.json")
         players_file = os.path.join("data", "players.json")
 
@@ -128,7 +188,7 @@ def init_db() -> None:
             logger.error(f"Failed to load JSON seed files: {e}")
             return
 
-        # Clear any partial data to ensure clean seeding state
+        # 2. Clear existing players and teams for a clean seeding run
         try:
             session.query(Player).delete()
             session.query(Team).delete()
@@ -138,7 +198,7 @@ def init_db() -> None:
             logger.error(f"Failed to clean database before seeding: {e}")
             return
 
-        # Seed teams first
+        # 3. Seed teams
         team_map = {}
         for team_info in teams_data:
             team = Team(
@@ -148,11 +208,10 @@ def init_db() -> None:
                 stadium_name=team_info["stadium_name"]
             )
             session.add(team)
-            # Flush to database so the database generates/assigns ID
             session.flush()
             team_map[team.name] = team.id
 
-        # Seed players next
+        # 4. Seed players and link their preferred positions
         for player_info in players_data:
             team_name = player_info["team"]
             team_id = team_map.get(team_name)
@@ -160,11 +219,20 @@ def init_db() -> None:
                 logger.warning(f"Team '{team_name}' not found in team map. Skipping player {player_info['name']} {player_info['surname']}.")
                 continue
 
+            pref_positions = []
+            for pos_name in player_info.get("preferred_positions", []):
+                pos_obj = pos_map.get(pos_name)
+                if pos_obj:
+                    pref_positions.append(pos_obj)
+                else:
+                    logger.warning(f"Position '{pos_name}' not found. Skipping preferred position for {player_info['name']} {player_info['surname']}.")
+
             player = Player(
                 name=player_info["name"],
                 surname=player_info["surname"],
                 team_id=team_id,
-                physical_attributes=player_info["physical_attributes"]
+                physical_attributes=player_info["physical_attributes"],
+                preferred_positions=pref_positions
             )
             session.add(player)
 
