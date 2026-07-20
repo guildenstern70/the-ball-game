@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "the-ball-game"
+version = "0.1.0"
+description = "The Ball Game"
+requires-python = ">=3.11"
+dependencies = [
+    "pyqt6>=6.11.0",
+    "sqlalchemy>=2.0.0",
+]
+
+[project.scripts]
+the-ball-game = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
