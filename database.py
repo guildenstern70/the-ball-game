@@ -10,6 +10,7 @@ import os
 import json
 import logging
 import sys
+import random
 from typing import List, Dict, Any
 from loguru import logger
 from sqlalchemy import create_engine, select, func, ForeignKey, String, JSON
@@ -129,6 +130,54 @@ STANDARD_POSITIONS = [
     "Right Field"
 ]
 
+FIRST_NAMES = [
+    "Aaron", "Cody", "Dansby", "Freddie", "Gerrit", "Giancarlo", "Ian", "Jarren",
+    "Juan", "Logan", "Matt", "Mike", "Mookie", "Nico", "Patrick", "Rafael",
+    "Shohei", "Trevor", "Triston", "Clayton", "Buster", "Bryce", "Ronald", "Jose",
+    "Francisco", "Corey", "Marcus", "Justin", "Max", "Paul", "Christian", "Corbin",
+    "Bobby", "Adley", "Gunnar", "Yordan", "Kyle", "Zack", "Blake", "Dylan"
+]
+
+SURNAMES = [
+    "Devers", "Duran", "Casas", "Story", "Judge", "Soto", "Cole", "Stanton",
+    "Ohtani", "Betts", "Freeman", "Kershaw", "Bellinger", "Swanson", "Hoerner",
+    "Happ", "Webb", "Chapman", "Yastrzemski", "Bailey", "Acuna", "Trout", "Harper",
+    "Lindor", "Seager", "Semien", "Scherzer", "Verlander", "Goldschmidt", "Yelich",
+    "Carroll", "Witt", "Rutschman", "Henderson", "Alvarez", "Tucker", "Wheeler",
+    "Snell", "Cease", "Arenado"
+]
+
+def generate_random_player(team_id: int, available_positions: List[Position]) -> Player:
+    """Generate a single random Player instance."""
+    first_name = random.choice(FIRST_NAMES)
+    surname = random.choice(SURNAMES)
+    
+    # Generate realistic physical attributes
+    height = random.randint(170, 210)
+    weight = random.randint(70, 120)
+    speed = random.randint(50, 99)
+    power = random.randint(50, 99)
+    
+    physical_attributes = {
+        "height_cm": height,
+        "weight_kg": weight,
+        "speed": speed,
+        "power": power
+    }
+    
+    # Select 1 or 2 random positions
+    num_positions = random.choice([1, 2])
+    preferred = random.sample(available_positions, num_positions)
+    
+    return Player(
+        name=first_name,
+        surname=surname,
+        team_id=team_id,
+        physical_attributes=physical_attributes,
+        preferred_positions=preferred
+    )
+
+
 def init_db() -> None:
     """Initialize the database.
     
@@ -171,21 +220,18 @@ def init_db() -> None:
                 session.flush()
             pos_map[pos_name] = pos
 
-        # Load team and player seed files
+        # Load team seed file
         teams_file = os.path.join("data", "teams.json")
-        players_file = os.path.join("data", "players.json")
 
-        if not os.path.exists(teams_file) or not os.path.exists(players_file):
-            logger.warning(f"Initialization skipped: Seed files {teams_file} or {players_file} not found.")
+        if not os.path.exists(teams_file):
+            logger.warning(f"Initialization skipped: Seed file {teams_file} not found.")
             return
 
         try:
             with open(teams_file, "r", encoding="utf-8") as f:
                 teams_data = json.load(f)
-            with open(players_file, "r", encoding="utf-8") as f:
-                players_data = json.load(f)
         except Exception as e:
-            logger.error(f"Failed to load JSON seed files: {e}")
+            logger.error(f"Failed to load JSON seed file: {e}")
             return
 
         # 2. Clear existing players and teams for a clean seeding run
@@ -199,7 +245,7 @@ def init_db() -> None:
             return
 
         # 3. Seed teams
-        team_map = {}
+        team_ids = []
         for team_info in teams_data:
             team = Team(
                 name=team_info["name"],
@@ -209,31 +255,13 @@ def init_db() -> None:
             )
             session.add(team)
             session.flush()
-            team_map[team.name] = team.id
+            team_ids.append(team.id)
 
-        # 4. Seed players and link their preferred positions
-        for player_info in players_data:
-            team_name = player_info["team"]
-            team_id = team_map.get(team_name)
-            if not team_id:
-                logger.warning(f"Team '{team_name}' not found in team map. Skipping player {player_info['name']} {player_info['surname']}.")
-                continue
-
-            pref_positions = []
-            for pos_name in player_info.get("preferred_positions", []):
-                pos_obj = pos_map.get(pos_name)
-                if pos_obj:
-                    pref_positions.append(pos_obj)
-                else:
-                    logger.warning(f"Position '{pos_name}' not found. Skipping preferred position for {player_info['name']} {player_info['surname']}.")
-
-            player = Player(
-                name=player_info["name"],
-                surname=player_info["surname"],
-                team_id=team_id,
-                physical_attributes=player_info["physical_attributes"],
-                preferred_positions=pref_positions
-            )
+        # 4. Generate 50 random players and link to random teams and preferred positions
+        positions_list = list(pos_map.values())
+        for _ in range(50):
+            team_id = random.choice(team_ids)
+            player = generate_random_player(team_id, positions_list)
             session.add(player)
 
         try:
