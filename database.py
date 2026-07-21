@@ -147,12 +147,16 @@ SURNAMES = [
     "Snell", "Cease", "Arenado"
 ]
 
-def generate_random_player(team_id: int, available_positions: List[Position]) -> Player:
-    """Generate a single random Player instance."""
+def generate_random_player(
+    team_id: int, 
+    pos_map: Dict[str, Position], 
+    is_pitcher: bool = False,
+    assigned_position: str = None
+) -> Player:
+    """Generate a single random Player instance with realistic physical attributes and positions."""
     first_name = random.choice(FIRST_NAMES)
     surname = random.choice(SURNAMES)
     
-    # Generate realistic physical attributes
     height = random.randint(170, 210)
     weight = random.randint(70, 120)
     speed = random.randint(50, 99)
@@ -165,16 +169,32 @@ def generate_random_player(team_id: int, available_positions: List[Position]) ->
         "power": power
     }
     
-    # Select 1 or 2 random positions
-    num_positions = random.choice([1, 2])
-    preferred = random.sample(available_positions, num_positions)
-    
+    chosen_positions = []
+    if is_pitcher:
+        chosen_positions.append(pos_map["Pitcher"])
+    elif assigned_position and assigned_position in pos_map:
+        chosen_positions.append(pos_map[assigned_position])
+        secondary_candidates = [p for name, p in pos_map.items() if name != "Pitcher" and name != assigned_position]
+        if random.random() < 0.3 and secondary_candidates:
+            chosen_positions.append(random.choice(secondary_candidates))
+    else:
+        non_pitcher_positions = [p for name, p in pos_map.items() if name != "Pitcher"]
+        chosen_positions.extend(random.sample(non_pitcher_positions, random.choice([1, 2])))
+        
+    # Deduplicate positions by name
+    seen = set()
+    unique_preferred = []
+    for p in chosen_positions:
+        if p.name not in seen:
+            seen.add(p.name)
+            unique_preferred.append(p)
+        
     return Player(
         name=first_name,
         surname=surname,
         team_id=team_id,
         physical_attributes=physical_attributes,
-        preferred_positions=preferred
+        preferred_positions=unique_preferred
     )
 
 
@@ -182,8 +202,12 @@ def init_db() -> None:
     """Initialize the database.
     
     Creates tables if they do not exist.
-    If database tables are empty, seeds them from JSON files.
+    If database tables do not match expected 6 teams and 156 rostered players, seeds them cleanly.
     """
+    EXPECTED_TEAMS = 6
+    PLAYERS_PER_TEAM = 26
+    EXPECTED_TOTAL_PLAYERS = EXPECTED_TEAMS * PLAYERS_PER_TEAM  # 156
+
     # Create all tables if they don't exist
     Base.metadata.create_all(engine)
 
@@ -200,18 +224,18 @@ def init_db() -> None:
             player_count = 0
             position_count = 0
 
-        # If both teams and players have data, we skip seeding
-        if team_count is not None and team_count > 0 and player_count is not None and player_count > 0:
+        # If both teams and players match complete roster counts, skip seeding
+        if team_count == EXPECTED_TEAMS and player_count == EXPECTED_TOTAL_PLAYERS:
             logger.info(
-                f"Database already initialized: found {team_count} teams, "
+                f"Database initialized with complete rosters: found {team_count} teams, "
                 f"{player_count} players, and {position_count} positions. Skipping seed."
             )
             return
 
-        logger.info("Initializing database and seeding records...")
+        logger.info(f"Initializing database and seeding rosters ({EXPECTED_TEAMS} teams x {PLAYERS_PER_TEAM} players = {EXPECTED_TOTAL_PLAYERS} total)...")
 
         # 1. Seed positions first if not present
-        pos_map = {}
+        pos_map: Dict[str, Position] = {}
         for pos_name in STANDARD_POSITIONS:
             pos = session.scalar(select(Position).where(Position.name == pos_name))
             if not pos:
@@ -234,8 +258,9 @@ def init_db() -> None:
             logger.error(f"Failed to load JSON seed file: {e}")
             return
 
-        # 2. Clear existing players and teams for a clean seeding run
+        # 2. Clear existing player_positions, players, and teams for a clean seeding run
         try:
+            session.execute(player_positions.delete())
             session.query(Player).delete()
             session.query(Team).delete()
             session.commit()
@@ -257,16 +282,34 @@ def init_db() -> None:
             session.flush()
             team_ids.append(team.id)
 
-        # 4. Generate 50 random players and link to random teams and preferred positions
-        positions_list = list(pos_map.values())
-        for _ in range(50):
-            team_id = random.choice(team_ids)
-            player = generate_random_player(team_id, positions_list)
-            session.add(player)
+        # 4. Generate 26-player roster for each of the 6 teams (13 pitchers & 13 position players)
+        POSITION_PLAYER_ROLES = [
+            "Catcher",
+            "First Base",
+            "Second Base",
+            "Third Base",
+            "Shortstop",
+            "Left Field",
+            "Center Field",
+            "Right Field"
+        ]
+
+        for team_id in team_ids:
+            # 13 Pitchers per team
+            for _ in range(13):
+                p = generate_random_player(team_id, pos_map, is_pitcher=True)
+                session.add(p)
+
+            # 13 Position Players per team (8 starting positions + 5 utility/bench players)
+            for i in range(13):
+                pos_name = POSITION_PLAYER_ROLES[i] if i < len(POSITION_PLAYER_ROLES) else random.choice(POSITION_PLAYER_ROLES)
+                p = generate_random_player(team_id, pos_map, is_pitcher=False, assigned_position=pos_name)
+                session.add(p)
 
         try:
             session.commit()
-            logger.success("Database successfully initialized and seeded.")
+            logger.success(f"Database successfully initialized with {len(team_ids)} teams and {len(team_ids) * PLAYERS_PER_TEAM} players.")
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to commit seeded database: {e}")
+

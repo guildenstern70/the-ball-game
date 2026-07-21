@@ -28,5 +28,11 @@
     "city": "San Francisco",
     "nation": "USA",
     "stadium_name": "Oracle Park"
+  },
+  {
+    "name": "Atlanta Braves",
+    "city": "Atlanta",
+    "nation": "USA",
+    "stadium_name": "Truist Park"
   }
 ]

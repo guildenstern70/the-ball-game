@@ -70,7 +70,7 @@ TheBallGame/
   - `Team`: Name, city, nation, stadium name, relationship to `Player`.
   - `Player`: Name, surname, team_id, JSON `physical_attributes` (height, weight, speed, power), relationship to `Position`.
   - `Position`: Name (Pitcher, Catcher, 1st Base, etc.), many-to-many relationship to `Player` via `player_positions`.
-- `init_db()`: Creates tables if missing and seeds initial 5 teams from `data/teams.json` and 50 random players with physical attributes if empty.
+- `init_db()`: Creates tables if missing and seeds initial 6 teams from `data/teams.json` and 156 players (complete MLB 26-player rosters per team: 13 pitchers & 13 position players).
 
 ---
 
