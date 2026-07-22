@@ -20,8 +20,8 @@ This document provides project context, technical specifications, codebase archi
 
 | Category | Technology | Usage / Purpose |
 | :--- | :--- | :--- |
-| **GUI Framework** | PyQt6 (`>=6.11.0`) | Window management, widget layout, screen stacking, custom vector drawing (`QPainter`), and animations. |
-| **ORM / Database** | SQLAlchemy (`>=2.0.0`) | SQLite ORM models (`Team`, `Player`, `Position`, `GameStatus`), relationship mapping, dynamic engine binding. |
+| **GUI Framework** | PyQt6 (`>=6.11.0`) | Window management, widget layout, screen stacking, custom vector drawing (`QPainter`), animations, responsive UI scaling. |
+| **ORM / Database** | SQLAlchemy (`>=2.0.0`) | SQLite ORM models (`Team`, `Player`, `Position`, `PlayerStats`, `GameStatus`), relationship mapping, dynamic engine binding. |
 | **Database Engine** | SQLite (`saves/*.db`) | Isolated per-save database files (`saves/savegame-ddmmyy-hhmmss.db`). |
 | **Logging** | Loguru (`>=0.7.3`) | Application logging with custom `InterceptHandler` forwarding Python logging and SQLAlchemy engine logs to Loguru. |
 
@@ -34,6 +34,7 @@ The project is structured into three clean namespaces: `model`, `game`, and `ui`
 ```
 TheBallGame/
 ├── GEMINI.md               # Context documentation for AI assistance
+├── README.md               # User setup & feature documentation
 ├── pyproject.toml          # Project configuration, dependencies, and script entry points
 ├── uv.lock                 # Lockfile for dependency pinning
 ├── main.py                 # Application bootstrap entry point & QMainWindow controller
@@ -43,17 +44,40 @@ TheBallGame/
 ├── saves/                  # SQLite per-save database files (savegame-ddmmyy-hhmmss.db)
 ├── model/                  # Namespace: Models & Database persistence
 │   ├── __init__.py         # Package exports
-│   ├── entities.py         # SQLAlchemy ORM models (Team, Player, Position, GameStatus)
+│   ├── entities.py         # SQLAlchemy ORM models (Team, Player, Position, PlayerStats, GameStatus)
 │   └── database.py         # Save manager, active DB connection, seeding & query helpers
 ├── game/                   # Namespace: Game logic & orchestration
 │   ├── __init__.py         # Package exports
 │   └── manager.py          # GameManager career creation & state controller
 └── ui/                     # Namespace: PyQt6 UI screens & components
     ├── __init__.py         # Package exports
-    ├── diamond.py          # BaseballDiamondWidget vector pitch animation
-    ├── dialogs.py          # SaveSelectorDialog & SettingsDialog modal windows
-    └── screens.py          # WelcomeScreen, TeamSelectScreen, & HomeScreen dashboard
+    ├── diamond.py          # BaseballDiamondWidget vector pitch animation with QPainter scaling
+    ├── dialogs.py          # SaveSelectorDialog & SettingsDialog (with resolution switcher)
+    └── screens.py          # WelcomeScreen, TeamSelectScreen, HomeScreen, & TeamRosterScreen
 ```
+
+### Key Components & Models Detailed
+
+#### 1. Models (`model/entities.py` & `model/database.py`)
+- **`Team`**: Name, city, nation, stadium name, relationship to rostered players.
+- **`Player`**: Name, surname, team_id, JSON `physical_attributes` (height, weight, speed, power), relationship to positions & stats.
+- **`Position`**: Standard baseball positions (Pitcher, Catcher, 1st Base, etc.).
+- **`GameStatus`**: Tracks user's chosen franchise (`user_team_id`), current `season` (2026), and `current_date` ("2026-04-01").
+- **`PlayerStats`**:
+  - Counting stats: `hits` (H), `at_bats` (AB), `hit_by_pitch` (HBP), `home_runs` (HR), `plate_appearances` (PA), `runs` (R), `runs_batted_in` (RBI), `doubles` (2B), `triples` (3B), `walks` (BB).
+  - Calculated properties: `batting_average` (BA), `on_base_percentage` (OBP), `slugging_percentage` (SLG), `on_base_plus_slugging` (OPS).
+- **Save Manager**: Manages `saves/savegame-DDMMYY-HHMMSS.db` files, dynamic engine binding, and complete roster seeding (6 teams x 26 players = 156 total with default zero stats).
+
+#### 2. Game Logic (`game/manager.py`)
+- **`GameManager`**: Orchestrates high-level career setup, loading recent save files, saving state, and status queries.
+
+#### 3. User Interface (`ui/`)
+- **`WelcomeScreen`**: Displays title, vector animated diamond, and dynamic New/Continue/Load menu.
+- **`TeamSelectScreen`**: Allows choosing a franchise from template cards to initialize a new career save.
+- **`HomeScreen`**: Dashboard showing chosen team banner, season date, and action tiles.
+- **`TeamRosterScreen`**: Interactive roster viewer with mode toggle between **📋 Physical Attributes** and **📊 Season Statistics**.
+- **`SettingsDialog`**: Modal supporting screen resolution switching (**1280 × 720** & **1920 × 1080**), returning to Main Menu, and exiting game.
+- **`BaseballDiamondWidget`**: Dynamic `QPainter.scale()` vector pitching and hit animation.
 
 ---
 

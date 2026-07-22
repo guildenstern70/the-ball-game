@@ -9,15 +9,17 @@
 import os
 from typing import List, Dict, Any, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGridLayout,
-    QPushButton, QDialog
+    QPushButton, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
+    QAbstractItemView
 )
 from loguru import logger
 
 from model import (
-    get_save_files, get_teams_template_data, get_active_game_status
+    get_save_files, get_teams_template_data, get_active_game_status,
+    get_user_team_roster_with_stats
 )
 from ui.diamond import BaseballDiamondWidget
 from ui.dialogs import SaveSelectorDialog, SettingsDialog
@@ -501,6 +503,7 @@ class HomeScreen(QWidget):
     back_to_menu_requested = pyqtSignal()
     quit_game_requested = pyqtSignal()
     change_resolution_requested = pyqtSignal(int, int)
+    view_team_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -585,8 +588,9 @@ class HomeScreen(QWidget):
         calendar_tile = ActionTileWidget("📅", "View Calendar", "Schedule & Games", enabled=False)
         grid_layout.addWidget(calendar_tile, 0, 0)
 
-        # 2. View Team (Disabled)
-        team_tile = ActionTileWidget("⚾", "View Team", "Roster & Statistics", enabled=False)
+        # 2. View Team (Active!)
+        team_tile = ActionTileWidget("⚾", "View Team", "Roster & Statistics", enabled=True)
+        team_tile.clicked.connect(self.view_team_requested.emit)
         grid_layout.addWidget(team_tile, 0, 1)
 
         # 3. Market (Disabled)
@@ -641,3 +645,251 @@ class HomeScreen(QWidget):
         dialog.exit_game_requested.connect(self.quit_game_requested.emit)
         dialog.resolution_changed.connect(self.change_resolution_requested.emit)
         dialog.exec()
+
+
+# --- Team Roster Screen (View Players with Attributes / Statistics Toggle) ---
+
+class TeamRosterScreen(QWidget):
+    """Roster viewer screen for active team supporting switching between Physical Attributes and Season Stats."""
+    back_to_home = pyqtSignal()
+
+    MODE_ATTRIBUTES = "attributes"
+    MODE_STATISTICS = "statistics"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.current_mode = self.MODE_ATTRIBUTES
+        self.roster_data: List[Dict[str, Any]] = []
+
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #000000;
+            }
+            QLabel {
+                background-color: transparent;
+            }
+            QPushButton#BackButton {
+                background-color: #111c15;
+                border: 1px solid #2d6a4f;
+                border-radius: 6px;
+                color: #e8f5e9;
+                padding: 8px 18px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton#BackButton:hover {
+                background-color: #1e3f20;
+                border: 1px solid #81c784;
+            }
+            QLabel#TitleHeader {
+                color: #e8f5e9;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                font-size: 28px;
+                font-weight: 800;
+            }
+            QLabel#SubtitleHeader {
+                color: #81c784;
+                font-size: 14px;
+            }
+            QPushButton.ToggleBtn {
+                background-color: #111c15;
+                border: 2px solid #1e3f20;
+                border-radius: 6px;
+                color: #81c784;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 8px 20px;
+            }
+            QPushButton.ToggleBtn:hover {
+                background-color: #16261d;
+                border: 2px solid #81c784;
+                color: #ffffff;
+            }
+            QPushButton.ToggleBtnActive {
+                background-color: #1b3823;
+                border: 2px solid #81c784;
+                color: #ffffff;
+            }
+            QTableWidget {
+                background-color: #111c15;
+                border: 1px solid #1e3f20;
+                border-radius: 8px;
+                gridline-color: #1e3f20;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QHeaderView::section {
+                background-color: #1b2e24;
+                color: #81c784;
+                font-weight: bold;
+                padding: 8px;
+                border: 1px solid #1e3f20;
+            }
+            QTableWidget::item {
+                padding: 4px;
+            }
+        """)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(35, 20, 35, 20)
+        main_layout.setSpacing(14)
+
+        # Top Bar
+        top_bar = QHBoxLayout()
+        back_btn = QPushButton("← Back to Home")
+        back_btn.setObjectName("BackButton")
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_btn.clicked.connect(self.back_to_home.emit)
+        top_bar.addWidget(back_btn)
+        top_bar.addStretch(1)
+        main_layout.addLayout(top_bar)
+
+        # Header Title & Subtitle
+        header_layout = QHBoxLayout()
+        info_layout = QVBoxLayout()
+        info_layout.setSpacing(4)
+
+        self.title_label = QLabel("TEAM ROSTER & PLAYERS")
+        self.title_label.setObjectName("TitleHeader")
+        info_layout.addWidget(self.title_label)
+
+        self.subtitle_label = QLabel("26 Active Rostered Players")
+        self.subtitle_label.setObjectName("SubtitleHeader")
+        info_layout.addWidget(self.subtitle_label)
+
+        header_layout.addLayout(info_layout)
+        header_layout.addStretch(1)
+
+        # Toggle Mode Segmented Control
+        toggle_layout = QHBoxLayout()
+        toggle_layout.setSpacing(8)
+
+        self.btn_attr_mode = QPushButton("📋  PHYSICAL ATTRIBUTES")
+        self.btn_attr_mode.setProperty("class", "ToggleBtn ToggleBtnActive")
+        self.btn_attr_mode.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_attr_mode.clicked.connect(lambda: self.switch_mode(self.MODE_ATTRIBUTES))
+        toggle_layout.addWidget(self.btn_attr_mode)
+
+        self.btn_stats_mode = QPushButton("📊  SEASON STATISTICS")
+        self.btn_stats_mode.setProperty("class", "ToggleBtn")
+        self.btn_stats_mode.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_stats_mode.clicked.connect(lambda: self.switch_mode(self.MODE_STATISTICS))
+        toggle_layout.addWidget(self.btn_stats_mode)
+
+        header_layout.addLayout(toggle_layout)
+        main_layout.addLayout(header_layout)
+
+        # Roster Table
+        self.table = QTableWidget()
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+
+        main_layout.addWidget(self.table)
+
+    def reload_data(self) -> None:
+        """Fetch active user team roster with stats and update view."""
+        self.roster_data = get_user_team_roster_with_stats()
+        status_info = get_active_game_status()
+        if status_info:
+            self.title_label.setText(f"{status_info['team_name'].upper()} ROSTER")
+            self.subtitle_label.setText(f"{len(self.roster_data)} Active Rostered Players")
+        self.populate_table()
+
+    def switch_mode(self, mode: str) -> None:
+        if self.current_mode == mode:
+            return
+        self.current_mode = mode
+
+        if mode == self.MODE_ATTRIBUTES:
+            self.btn_attr_mode.setProperty("class", "ToggleBtn ToggleBtnActive")
+            self.btn_stats_mode.setProperty("class", "ToggleBtn")
+        else:
+            self.btn_attr_mode.setProperty("class", "ToggleBtn")
+            self.btn_stats_mode.setProperty("class", "ToggleBtn Active")
+            self.btn_stats_mode.setProperty("class", "ToggleBtn ToggleBtnActive")
+
+        self.btn_attr_mode.style().unpolish(self.btn_attr_mode)
+        self.btn_attr_mode.style().polish(self.btn_attr_mode)
+        self.btn_stats_mode.style().unpolish(self.btn_stats_mode)
+        self.btn_stats_mode.style().polish(self.btn_stats_mode)
+
+        self.populate_table()
+
+    def populate_table(self) -> None:
+        if not self.roster_data:
+            self.table.setRowCount(0)
+            return
+
+        self.table.setRowCount(len(self.roster_data))
+
+        if self.current_mode == self.MODE_ATTRIBUTES:
+            headers = ["Player Name", "Preferred Position(s)", "Height", "Weight", "Speed Rating", "Power Rating"]
+            self.table.setColumnCount(len(headers))
+            self.table.setHorizontalHeaderLabels(headers)
+            self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+            for row, p in enumerate(self.roster_data):
+                name_item = QTableWidgetItem(p["full_name"])
+                name_item.setForeground(QColor("#e8f5e9"))
+
+                pos_item = QTableWidgetItem(p["positions"])
+                pos_item.setForeground(QColor("#81c784") if "Pitcher" in p["positions"] else QColor("#a5d6a7"))
+
+                phys = p["physical"]
+                h_item = QTableWidgetItem(f"{phys.get('height_cm', '-')} cm")
+                w_item = QTableWidgetItem(f"{phys.get('weight_kg', '-')} kg")
+                s_item = QTableWidgetItem(str(phys.get('speed', '-')))
+                p_item = QTableWidgetItem(str(phys.get('power', '-')))
+
+                items = [name_item, pos_item, h_item, w_item, s_item, p_item]
+                for col, item in enumerate(items):
+                    align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter if col == 0 else Qt.AlignmentFlag.AlignCenter
+                    item.setTextAlignment(align)
+                    self.table.setItem(row, col, item)
+
+        else:  # STATISTICS MODE
+            headers = ["Player Name", "Pos", "PA", "AB", "H", "2B", "3B", "HR", "RBI", "R", "BB", "HBP", "BA", "OBP", "OPS"]
+            self.table.setColumnCount(len(headers))
+            self.table.setHorizontalHeaderLabels(headers)
+            self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+            for row, p in enumerate(self.roster_data):
+                name_item = QTableWidgetItem(p["full_name"])
+                name_item.setForeground(QColor("#e8f5e9"))
+
+                pos_item = QTableWidgetItem(p["positions"])
+                pos_item.setForeground(QColor("#81c784") if "Pitcher" in p["positions"] else QColor("#a5d6a7"))
+
+                st = p["stats"]
+                pa_item = QTableWidgetItem(str(st["pa"]))
+                ab_item = QTableWidgetItem(str(st["ab"]))
+                h_item = QTableWidgetItem(str(st["h"]))
+                d_item = QTableWidgetItem(str(st["doubles"]))
+                t_item = QTableWidgetItem(str(st["triples"]))
+                hr_item = QTableWidgetItem(str(st["hr"]))
+                rbi_item = QTableWidgetItem(str(st["rbi"]))
+                r_item = QTableWidgetItem(str(st["r"]))
+                bb_item = QTableWidgetItem(str(st["bb"]))
+                hbp_item = QTableWidgetItem(str(st["hbp"]))
+
+                ba_str = f"{st['ba']:.3f}".lstrip('0') if st['ba'] > 0 else ".000"
+                obp_str = f"{st['obp']:.3f}".lstrip('0') if st['obp'] > 0 else ".000"
+                ops_str = f"{st['ops']:.3f}".lstrip('0') if st['ops'] > 0 else ".000"
+
+                ba_item = QTableWidgetItem(ba_str)
+                ba_item.setForeground(QColor("#81c784"))
+                obp_item = QTableWidgetItem(obp_str)
+                obp_item.setForeground(QColor("#81c784"))
+                ops_item = QTableWidgetItem(ops_str)
+                ops_item.setForeground(QColor("#a5d6a7"))
+
+                items = [
+                    name_item, pos_item, pa_item, ab_item, h_item, d_item, t_item,
+                    hr_item, rbi_item, r_item, bb_item, hbp_item, ba_item, obp_item, ops_item
+                ]
+                for col, item in enumerate(items):
+                    align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter if col == 0 else Qt.AlignmentFlag.AlignCenter
+                    item.setTextAlignment(align)
+                    self.table.setItem(row, col, item)

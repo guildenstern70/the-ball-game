@@ -6,7 +6,7 @@
 # See LICENSE.
 #
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy import String, JSON, ForeignKey, Table, Column
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -86,8 +86,73 @@ class Player(Base):
         back_populates="players"
     )
 
+    # One-to-one relationship: Player -> PlayerStats
+    stats: Mapped[Optional["PlayerStats"]] = relationship(
+        "PlayerStats",
+        back_populates="player",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self) -> str:
         return f"<Player(name={self.name!r}, surname={self.surname!r}, team_id={self.team_id})>"
+
+
+class PlayerStats(Base):
+    """Player statistics model storing batting & offensive metrics."""
+    __tablename__ = "player_stats"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="CASCADE"), nullable=False, unique=True)
+    season: Mapped[int] = mapped_column(default=2026)
+
+    # Basic Counting Statistics
+    plate_appearances: Mapped[int] = mapped_column(default=0)  # PA
+    at_bats: Mapped[int] = mapped_column(default=0)            # AB
+    hits: Mapped[int] = mapped_column(default=0)               # H / HITS
+    doubles: Mapped[int] = mapped_column(default=0)            # 2B
+    triples: Mapped[int] = mapped_column(default=0)            # 3B
+    home_runs: Mapped[int] = mapped_column(default=0)          # HR
+    runs_batted_in: Mapped[int] = mapped_column(default=0)     # RBI
+    runs: Mapped[int] = mapped_column(default=0)               # R
+    walks: Mapped[int] = mapped_column(default=0)              # BB
+    hit_by_pitch: Mapped[int] = mapped_column(default=0)       # HBP
+
+    # Relationship to Player
+    player: Mapped["Player"] = relationship("Player", back_populates="stats")
+
+    # Calculated Statistics Properties
+    @property
+    def batting_average(self) -> float:
+        """BA = Hits / At Bats"""
+        if self.at_bats > 0:
+            return round(self.hits / self.at_bats, 3)
+        return 0.000
+
+    @property
+    def on_base_percentage(self) -> float:
+        """OBP = (Hits + Walks + HBP) / (At Bats + Walks + HBP)"""
+        denom = self.at_bats + self.walks + self.hit_by_pitch
+        if denom > 0:
+            return round((self.hits + self.walks + self.hit_by_pitch) / denom, 3)
+        return 0.000
+
+    @property
+    def slugging_percentage(self) -> float:
+        """SLG = Total Bases / At Bats"""
+        if self.at_bats > 0:
+            singles = self.hits - (self.doubles + self.triples + self.home_runs)
+            total_bases = singles + (2 * self.doubles) + (3 * self.triples) + (4 * self.home_runs)
+            return round(total_bases / self.at_bats, 3)
+        return 0.000
+
+    @property
+    def on_base_plus_slugging(self) -> float:
+        """OPS = OBP + SLG"""
+        return round(self.on_base_percentage + self.slugging_percentage, 3)
+
+    def __repr__(self) -> str:
+        return f"<PlayerStats(player_id={self.player_id}, H={self.hits}, AB={self.at_bats}, HR={self.home_runs}, RBI={self.runs_batted_in})>"
 
 
 class GameStatus(Base):

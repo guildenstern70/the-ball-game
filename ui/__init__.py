@@ -8,7 +8,10 @@
 
 from ui.diamond import BaseballDiamondWidget
 from ui.dialogs import SaveSelectorDialog, SettingsDialog
-from ui.screens import WelcomeScreen, TeamSelectScreen, HomeScreen, TeamSelectCardWidget, ActionTileWidget
+from ui.screens import (
+    WelcomeScreen, TeamSelectScreen, HomeScreen, TeamRosterScreen,
+    TeamSelectCardWidget, ActionTileWidget
+)
 
 __all__ = [
     "BaseballDiamondWidget",
@@ -17,6 +20,7 @@ __all__ = [
     "WelcomeScreen",
     "TeamSelectScreen",
     "HomeScreen",
+    "TeamRosterScreen",
     "TeamSelectCardWidget",
     "ActionTileWidget"
 ]

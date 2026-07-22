@@ -6,7 +6,7 @@
 # See LICENSE.
 #
 
-from model.entities import Base, Team, Player, Position, GameStatus, player_positions
+from model.entities import Base, Team, Player, Position, GameStatus, PlayerStats, player_positions
 from model.database import (
     Session,
     get_engine,
@@ -17,6 +17,7 @@ from model.database import (
     set_active_database,
     create_new_save,
     get_active_game_status,
+    get_user_team_roster_with_stats,
     init_db_schema_and_seed
 )
 
@@ -26,6 +27,7 @@ __all__ = [
     "Player",
     "Position",
     "GameStatus",
+    "PlayerStats",
     "player_positions",
     "Session",
     "get_engine",
@@ -36,5 +38,6 @@ __all__ = [
     "set_active_database",
     "create_new_save",
     "get_active_game_status",
+    "get_user_team_roster_with_stats",
     "init_db_schema_and_seed"
 ]

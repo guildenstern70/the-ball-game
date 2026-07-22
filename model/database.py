@@ -17,7 +17,7 @@ from typing import List, Dict, Any, Optional
 from loguru import logger
 from sqlalchemy import create_engine, select, func, Engine
 from sqlalchemy.orm import sessionmaker, Session as SQLAlchemySession, joinedload
-from model.entities import Base, Team, Player, Position, GameStatus, player_positions
+from model.entities import Base, Team, Player, Position, GameStatus, PlayerStats, player_positions
 
 # Forward standard logging to loguru
 class InterceptHandler(logging.Handler):
@@ -253,6 +253,60 @@ def get_active_game_status() -> Optional[Dict[str, Any]]:
     return None
 
 
+def get_user_team_roster_with_stats() -> List[Dict[str, Any]]:
+    """Return list of player data dicts for the active user team with positions, physical attrs, and stats."""
+    if _active_engine is None:
+        return []
+
+    results = []
+    try:
+        with Session() as session:
+            status = session.scalar(select(GameStatus))
+            if not status:
+                return []
+
+            players = session.scalars(
+                select(Player)
+                .where(Player.team_id == status.user_team_id)
+                .options(
+                    joinedload(Player.preferred_positions),
+                    joinedload(Player.stats)
+                )
+            ).unique().all()
+
+            for p in players:
+                pos_str = ", ".join(pos.name for pos in p.preferred_positions)
+                stats_obj = p.stats
+                
+                results.append({
+                    "id": p.id,
+                    "name": p.name,
+                    "surname": p.surname,
+                    "full_name": f"{p.name} {p.surname}",
+                    "positions": pos_str,
+                    "physical": p.physical_attributes or {},
+                    "stats": {
+                        "pa": stats_obj.plate_appearances if stats_obj else 0,
+                        "ab": stats_obj.at_bats if stats_obj else 0,
+                        "h": stats_obj.hits if stats_obj else 0,
+                        "doubles": stats_obj.doubles if stats_obj else 0,
+                        "triples": stats_obj.triples if stats_obj else 0,
+                        "hr": stats_obj.home_runs if stats_obj else 0,
+                        "rbi": stats_obj.runs_batted_in if stats_obj else 0,
+                        "r": stats_obj.runs if stats_obj else 0,
+                        "bb": stats_obj.walks if stats_obj else 0,
+                        "hbp": stats_obj.hit_by_pitch if stats_obj else 0,
+                        "ba": stats_obj.batting_average if stats_obj else 0.000,
+                        "obp": stats_obj.on_base_percentage if stats_obj else 0.000,
+                        "ops": stats_obj.on_base_plus_slugging if stats_obj else 0.000
+                    }
+                })
+    except Exception as e:
+        logger.error(f"Error fetching user team roster: {e}")
+
+    return results
+
+
 def init_db_schema_and_seed() -> None:
     """Initialize database tables and seed initial rosters into the active database."""
     if _active_engine is None:
@@ -311,6 +365,7 @@ def init_db_schema_and_seed() -> None:
         # 2. Clean tables for clean seeding
         try:
             session.execute(player_positions.delete())
+            session.query(PlayerStats).delete()
             session.query(Player).delete()
             session.query(Team).delete()
             session.commit()
@@ -332,25 +387,35 @@ def init_db_schema_and_seed() -> None:
             session.flush()
             team_ids.append(team.id)
 
-        # 4. Generate 26-player rosters
+        # 4. Generate 26-player rosters & default PlayerStats
         POSITION_PLAYER_ROLES = [
             "Catcher", "First Base", "Second Base", "Third Base",
             "Shortstop", "Left Field", "Center Field", "Right Field"
         ]
 
+        generated_players = []
         for team_id in team_ids:
             for _ in range(13):
                 p = generate_random_player(team_id, pos_map, is_pitcher=True)
                 session.add(p)
+                generated_players.append(p)
 
             for i in range(13):
                 pos_name = POSITION_PLAYER_ROLES[i] if i < len(POSITION_PLAYER_ROLES) else random.choice(POSITION_PLAYER_ROLES)
                 p = generate_random_player(team_id, pos_map, is_pitcher=False, assigned_position=pos_name)
                 session.add(p)
+                generated_players.append(p)
+
+        session.flush()
+
+        # Add initial zero stats for each player
+        for p in generated_players:
+            stats = PlayerStats(player_id=p.id, season=2026)
+            session.add(stats)
 
         try:
             session.commit()
-            logger.success(f"Database successfully seeded at '{_active_save_path}' with {len(team_ids)} teams and {len(team_ids) * PLAYERS_PER_TEAM} players.")
+            logger.success(f"Database successfully seeded at '{_active_save_path}' with {len(team_ids)} teams, {len(generated_players)} players, and default PlayerStats.")
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to commit seeded database: {e}")

@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 from loguru import logger
 
 from game import GameManager
-from ui import WelcomeScreen, TeamSelectScreen, HomeScreen
+from ui import WelcomeScreen, TeamSelectScreen, HomeScreen, TeamRosterScreen
 
 
 def main() -> None:
@@ -41,10 +41,12 @@ def main() -> None:
     welcome_screen = WelcomeScreen()
     team_select_screen = TeamSelectScreen()
     home_screen = HomeScreen()
+    team_roster_screen = TeamRosterScreen()
 
     stacked_widget.addWidget(welcome_screen)
     stacked_widget.addWidget(team_select_screen)
     stacked_widget.addWidget(home_screen)
+    stacked_widget.addWidget(team_roster_screen)
 
     # Resolution Change Helper
     def apply_resolution(width: int, height: int):
@@ -75,6 +77,12 @@ def main() -> None:
         home_screen.setFocus()
         logger.info("Navigated to Home Screen.")
 
+    def show_team_roster():
+        team_roster_screen.reload_data()
+        stacked_widget.setCurrentWidget(team_roster_screen)
+        team_roster_screen.setFocus()
+        logger.info("Navigated to Team Roster Screen.")
+
     # Action Handlers delegating to GameManager
     def handle_new_game_start():
         show_team_select()
@@ -104,6 +112,9 @@ def main() -> None:
     home_screen.back_to_menu_requested.connect(show_welcome)
     home_screen.quit_game_requested.connect(app.quit)
     home_screen.change_resolution_requested.connect(apply_resolution)
+    home_screen.view_team_requested.connect(show_team_roster)
+
+    team_roster_screen.back_to_home.connect(show_home)
 
     # Set initial view
     show_welcome()
