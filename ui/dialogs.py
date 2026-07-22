@@ -9,7 +9,8 @@
 from typing import List, Dict, Any, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QListWidget, QListWidgetItem,
+    QComboBox
 )
 
 
@@ -124,14 +125,20 @@ class SaveSelectorDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
-    """Settings modal dialog accessible from the Home Screen."""
+    """Settings modal dialog supporting resolution selection and navigation."""
     main_menu_requested = pyqtSignal()
     exit_game_requested = pyqtSignal()
+    resolution_changed = pyqtSignal(int, int)
 
-    def __init__(self, parent=None):
+    RESOLUTIONS = [
+        ("1280 × 720 (Default)", 1280, 720),
+        ("1920 × 1080 (Full HD)", 1920, 1080)
+    ]
+
+    def __init__(self, current_width: int = 1280, current_height: int = 720, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
-        self.setFixedSize(380, 280)
+        self.setFixedSize(420, 340)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self.setStyleSheet("""
@@ -146,6 +153,29 @@ class SettingsDialog(QDialog):
                 font-size: 22px;
                 font-weight: bold;
                 qproperty-alignment: AlignCenter;
+            }
+            QLabel.FieldLabel {
+                color: #81c784;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QComboBox {
+                background-color: #111c15;
+                border: 1px solid #2d6a4f;
+                border-radius: 6px;
+                color: #e8f5e9;
+                padding: 6px 12px;
+                font-size: 14px;
+            }
+            QComboBox:hover {
+                border: 1px solid #81c784;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #111c15;
+                color: #e8f5e9;
+                selection-background-color: #1e3f20;
+                selection-color: #ffffff;
             }
             QPushButton.SettingsBtn {
                 background-color: #111c15;
@@ -181,6 +211,24 @@ class SettingsDialog(QDialog):
         title.setObjectName("Title")
         layout.addWidget(title)
 
+        layout.addSpacing(6)
+
+        # Resolution Selection
+        res_label = QLabel("SCREEN RESOLUTION")
+        res_label.setProperty("class", "FieldLabel")
+        layout.addWidget(res_label)
+
+        self.res_combo = QComboBox()
+        active_idx = 0
+        for idx, (label, w, h) in enumerate(self.RESOLUTIONS):
+            self.res_combo.addItem(label, (w, h))
+            if w == current_width and h == current_height:
+                active_idx = idx
+
+        self.res_combo.setCurrentIndex(active_idx)
+        self.res_combo.currentIndexChanged.connect(self._on_resolution_changed)
+        layout.addWidget(self.res_combo)
+
         layout.addStretch(1)
 
         menu_btn = QPushButton("🏠  Return to Main Menu")
@@ -203,6 +251,12 @@ class SettingsDialog(QDialog):
         layout.addWidget(resume_btn)
 
         layout.addStretch(1)
+
+    def _on_resolution_changed(self, index: int):
+        data = self.res_combo.itemData(index)
+        if data:
+            width, height = data
+            self.resolution_changed.emit(width, height)
 
     def _on_main_menu(self):
         self.accept()

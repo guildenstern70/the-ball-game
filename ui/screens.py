@@ -500,6 +500,7 @@ class HomeScreen(QWidget):
     """Central home dashboard screen displaying user's team status and main navigation tiles."""
     back_to_menu_requested = pyqtSignal()
     quit_game_requested = pyqtSignal()
+    change_resolution_requested = pyqtSignal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -632,7 +633,11 @@ class HomeScreen(QWidget):
             self.logo_label.clear()
 
     def open_settings(self) -> None:
-        dialog = SettingsDialog(self)
+        win = self.window()
+        w = win.width() if win else 1280
+        h = win.height() if win else 720
+        dialog = SettingsDialog(current_width=w, current_height=h, parent=self)
         dialog.main_menu_requested.connect(self.back_to_menu_requested.emit)
         dialog.exit_game_requested.connect(self.quit_game_requested.emit)
+        dialog.resolution_changed.connect(self.change_resolution_requested.emit)
         dialog.exec()

@@ -20,11 +20,19 @@ def main() -> None:
     app = QApplication(sys.argv)
     game_manager = GameManager()
 
-    # Initialize the main PyQt6 window
+    # Initialize the main PyQt6 window (Default: 1280 x 720)
     window = QMainWindow()
     window.setWindowTitle("The Ball Game")
-    window.resize(900, 680)
+    window.resize(1280, 720)
     window.setStyleSheet("QMainWindow, QWidget, QStackedWidget { background-color: #000000; }")
+
+    # Center window on primary display
+    screen = app.primaryScreen()
+    if screen:
+        screen_geo = screen.availableGeometry()
+        x = screen_geo.x() + (screen_geo.width() - 1280) // 2
+        y = screen_geo.y() + (screen_geo.height() - 720) // 2
+        window.move(max(0, x), max(0, y))
 
     # Create stacked widget for navigation between screens
     stacked_widget = QStackedWidget()
@@ -37,6 +45,17 @@ def main() -> None:
     stacked_widget.addWidget(welcome_screen)
     stacked_widget.addWidget(team_select_screen)
     stacked_widget.addWidget(home_screen)
+
+    # Resolution Change Helper
+    def apply_resolution(width: int, height: int):
+        window.resize(width, height)
+        curr_screen = window.screen() or app.primaryScreen()
+        if curr_screen:
+            geo = curr_screen.availableGeometry()
+            new_x = geo.x() + (geo.width() - width) // 2
+            new_y = geo.y() + (geo.height() - height) // 2
+            window.move(max(0, new_x), max(0, new_y))
+        logger.info(f"Screen resolution applied: {width}x{height}")
 
     # Screen Transition Slots
     def show_welcome():
@@ -84,6 +103,7 @@ def main() -> None:
 
     home_screen.back_to_menu_requested.connect(show_welcome)
     home_screen.quit_game_requested.connect(app.quit)
+    home_screen.change_resolution_requested.connect(apply_resolution)
 
     # Set initial view
     show_welcome()

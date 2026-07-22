@@ -12,11 +12,13 @@ from PyQt6.QtWidgets import QWidget
 
 
 class BaseballDiamondWidget(QWidget):
-    """Custom QWidget that renders a styled baseball field with vector animations."""
+    """Custom QWidget that renders a styled baseball field with responsive vector scaling."""
     
+    BASE_SIZE = 360.0
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(360, 360)
+        self.setMinimumSize(280, 280)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         
         # Animation state variables
@@ -25,12 +27,11 @@ class BaseballDiamondWidget(QWidget):
         self.timer.timeout.connect(self.update_animation)
         self.timer.start(30)  # ~33 FPS
         
-        # Center & dimensions
+        # Base coordinates defined on 360x360 coordinate system
         self.cx = 180
         self.cy = 200
         self.r = 90
         
-        # Base coordinates
         self.home_plate = QPointF(self.cx, self.cy + self.r)
         self.first_base = QPointF(self.cx + self.r, self.cy)
         self.second_base = QPointF(self.cx, self.cy - self.r)
@@ -47,6 +48,16 @@ class BaseballDiamondWidget(QWidget):
         
         # Solid black background fill
         painter.fillRect(self.rect(), QColor("#000000"))
+        
+        # Calculate dynamic scale factor based on widget width and height
+        scale = min(self.width() / self.BASE_SIZE, self.height() / self.BASE_SIZE)
+        
+        # Center the coordinate system inside the widget bounding box
+        tx = (self.width() - self.BASE_SIZE * scale) / 2.0
+        ty = (self.height() - self.BASE_SIZE * scale) / 2.0
+        
+        painter.translate(tx, ty)
+        painter.scale(scale, scale)
         
         # Outfield Grass Arc
         R = 220
