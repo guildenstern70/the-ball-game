@@ -21,71 +21,54 @@ This document provides project context, technical specifications, codebase archi
 | Category | Technology | Usage / Purpose |
 | :--- | :--- | :--- |
 | **GUI Framework** | PyQt6 (`>=6.11.0`) | Window management, widget layout, screen stacking, custom vector drawing (`QPainter`), and animations. |
-| **ORM / Database** | SQLAlchemy (`>=2.0.0`) | SQLite ORM models (`Team`, `Player`, `Position`), relationship mapping, and database seed logic. |
-| **Database Engine** | SQLite (`the_ball_game.db`) | Local file database stored in project root. |
-| **Logging** | Loguru (`>=0.7.3`) | Application logging, with custom `InterceptHandler` forwarding standard Python logging and SQLAlchemy engine logs to Loguru. |
+| **ORM / Database** | SQLAlchemy (`>=2.0.0`) | SQLite ORM models (`Team`, `Player`, `Position`, `GameStatus`), relationship mapping, dynamic engine binding. |
+| **Database Engine** | SQLite (`saves/*.db`) | Isolated per-save database files (`saves/savegame-ddmmyy-hhmmss.db`). |
+| **Logging** | Loguru (`>=0.7.3`) | Application logging with custom `InterceptHandler` forwarding Python logging and SQLAlchemy engine logs to Loguru. |
 
 ---
 
 ## 3. Codebase Architecture & File Structure
+
+The project is structured into three clean namespaces: `model`, `game`, and `ui`.
 
 ```
 TheBallGame/
 ├── GEMINI.md               # Context documentation for AI assistance
 ├── pyproject.toml          # Project configuration, dependencies, and script entry points
 ├── uv.lock                 # Lockfile for dependency pinning
-├── main.py                 # Application entry point & QMainWindow controller
-├── welcome_screen.py       # PyQt6 Welcome Screen, Baseball Diamond Animation, and Game Screen
-├── database.py             # SQLAlchemy models, SQLite engine initialization, and seeding logic
-├── the_ball_game.db        # SQLite database file
+├── main.py                 # Application bootstrap entry point & QMainWindow controller
 ├── data/
-│   └── teams.json          # Initial team seed data
-└── LICENSE                 # Project license (ISC)
+│   ├── teams.json          # Initial team seed data template
+│   └── logos/              # Team logo PNG assets
+├── saves/                  # SQLite per-save database files (savegame-ddmmyy-hhmmss.db)
+├── model/                  # Namespace: Models & Database persistence
+│   ├── __init__.py         # Package exports
+│   ├── entities.py         # SQLAlchemy ORM models (Team, Player, Position, GameStatus)
+│   └── database.py         # Save manager, active DB connection, seeding & query helpers
+├── game/                   # Namespace: Game logic & orchestration
+│   ├── __init__.py         # Package exports
+│   └── manager.py          # GameManager career creation & state controller
+└── ui/                     # Namespace: PyQt6 UI screens & components
+    ├── __init__.py         # Package exports
+    ├── diamond.py          # BaseballDiamondWidget vector pitch animation
+    ├── dialogs.py          # SaveSelectorDialog & SettingsDialog modal windows
+    └── screens.py          # WelcomeScreen, TeamSelectScreen, & HomeScreen dashboard
 ```
-
-### Key Modules Detailed
-
-#### `main.py`
-- Entry point (`main()`) called via `uv run python main.py` or script command `the-ball-game`.
-- Initializes database via `database.init_db()`.
-- Sets up `QApplication` and `QMainWindow`.
-- Manages view navigation using `QStackedWidget` between `WelcomeScreen` and `GameScreen`.
-- Applies top-level black background styling (`QMainWindow, QWidget, QStackedWidget { background-color: #000000; }`).
-
-#### `welcome_screen.py`
-- **`BaseballDiamondWidget`**: Custom `QWidget` using `QPainter` to render a 400x400 vector baseball field (dirt track, grass diamond, bases, foul lines, pitcher's mound).
-  - Uses a `QTimer` running at ~33 FPS (120-tick cycle) for pitch, swing & hit, contact flash, `"CRACK!"` text popup, and parabolic height arc for fly balls.
-  - Background filled with solid `#000000` via `painter.fillRect(self.rect(), QColor("#000000"))`.
-- **`WelcomeScreen`**:
-  - Main welcome screen showing the title `"THE BALL GAME"`, subtitle `"A tiny baseball simulator"`, the centered animated diamond, and a breathing/pulsing `"HIT ANY KEY TO START"` prompt (animated via `QGraphicsOpacityEffect` and sine timer).
-  - Captures keyboard presses (`keyPressEvent`) and mouse clicks (`mousePressEvent`) to emit the `started` signal.
-  - Uses `self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)` for proper CSS rendering.
-- **`GameScreen`**:
-  - Placeholder game screen displaying team and player statistics queried live from SQLite.
-  - Handles `ESC` key press to emit `back_to_menu` signal.
-
-#### `database.py`
-- SQLite database connection (`sqlite:///the_ball_game.db`).
-- ORM Models:
-  - `Team`: Name, city, nation, stadium name, relationship to `Player`.
-  - `Player`: Name, surname, team_id, JSON `physical_attributes` (height, weight, speed, power), relationship to `Position`.
-  - `Position`: Name (Pitcher, Catcher, 1st Base, etc.), many-to-many relationship to `Player` via `player_positions`.
-- `init_db()`: Creates tables if missing and seeds initial 6 teams from `data/teams.json` and 156 players (complete MLB 26-player rosters per team: 13 pitchers & 13 position players).
 
 ---
 
 ## 4. Design Aesthetics & Styling Guidelines
 
 1. **Theme Palette**:
-   - **Primary Background**: `#000000` (Pure Black)
+   - **Primary Background**: `#000000` (Pure Black) / `#0b140e` (Modal Dark)
+   - **Card / Surface Fill**: `#111c15` (Dark Green Surface), `#1b3823` (Active Green Highlight)
    - **Grass Green**: `#1e3f20` (Outfield), `#2d6a4f` (Infield)
    - **Dirt Clay**: `#8c6239` (Infield track), `#a67c52` (Mound)
    - **Title Text**: `#e8f5e9` (Soft White)
-   - **Subtitle / Secondary Text**: `#81c784` (Soft Green)
-   - **Prompt Text**: `#a5d6a7` (Pulsing Light Green)
+   - **Secondary / Accent Text**: `#81c784` (Soft Green), `#a5d6a7` (Pulsing Light Green)
 2. **PyQt6 Custom Widget Styling Rules**:
    - Always set `self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)` on custom `QWidget` subclasses so PyQt6 respects stylesheet `background-color` rules.
-   - Set `background-color: transparent` on `QLabel` elements overlaying dark backgrounds to prevent unwanted background card boxes.
+   - Use standard system fonts (`'Helvetica Neue', Arial, sans-serif`) in CSS `font-family` declarations.
 
 ---
 
@@ -95,7 +78,7 @@ TheBallGame/
   ```bash
   uv run python main.py
   ```
-- **Check Compilation / Syntax**:
+- **Check Compilation / Syntax Across All Packages**:
   ```bash
-  uv run python -m py_compile welcome_screen.py main.py database.py
+  uv run python -m py_compile model/*.py game/*.py ui/*.py main.py
   ```

@@ -9,13 +9,16 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 from loguru import logger
-from database import create_new_save, get_most_recent_save, set_active_database
-from welcome_screen import WelcomeScreen, TeamSelectScreen, HomeScreen
+
+from game import GameManager
+from ui import WelcomeScreen, TeamSelectScreen, HomeScreen
+
 
 def main() -> None:
     logger.info("The Ball Game v.0.1.0")
 
     app = QApplication(sys.argv)
+    game_manager = GameManager()
 
     # Initialize the main PyQt6 window
     window = QMainWindow()
@@ -35,7 +38,7 @@ def main() -> None:
     stacked_widget.addWidget(team_select_screen)
     stacked_widget.addWidget(home_screen)
 
-    # Transition slots
+    # Screen Transition Slots
     def show_welcome():
         welcome_screen.refresh_menu()
         stacked_widget.setCurrentWidget(welcome_screen)
@@ -53,30 +56,22 @@ def main() -> None:
         home_screen.setFocus()
         logger.info("Navigated to Home Screen.")
 
-    # Action Handlers
+    # Action Handlers delegating to GameManager
     def handle_new_game_start():
-        logger.info("User requested New Game. Opening Team Selection...")
         show_team_select()
 
     def handle_team_chosen(team_name: str):
-        logger.info(f"Creating new save game with chosen team: '{team_name}'...")
-        save_path = create_new_save(team_name)
-        logger.info(f"Created and loaded new save game: {save_path}")
+        game_manager.create_career(team_name)
         show_home()
 
     def handle_continue():
-        save_path = get_most_recent_save()
-        if save_path:
-            logger.info(f"Continuing save game: {save_path}")
-            set_active_database(save_path)
+        if game_manager.continue_latest_career():
             show_home()
         else:
-            logger.warning("No save files found to continue. Redirecting to Team Selection...")
             show_team_select()
 
     def handle_load_game(save_path: str):
-        logger.info(f"Loading selected save game: {save_path}")
-        set_active_database(save_path)
+        game_manager.load_career(save_path)
         show_home()
 
     # Connect signals

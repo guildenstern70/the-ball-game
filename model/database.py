@@ -15,10 +15,11 @@ import glob
 import datetime
 from typing import List, Dict, Any, Optional
 from loguru import logger
-from sqlalchemy import create_engine, select, func, ForeignKey, String, JSON, Engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, Session as SQLAlchemySession, joinedload
+from sqlalchemy import create_engine, select, func, Engine
+from sqlalchemy.orm import sessionmaker, Session as SQLAlchemySession, joinedload
+from model.entities import Base, Team, Player, Position, GameStatus, player_positions
 
-# Define InterceptHandler to forward standard logging messages to loguru
+# Forward standard logging to loguru
 class InterceptHandler(logging.Handler):
     def emit(self, record):
         try:
@@ -34,7 +35,6 @@ class InterceptHandler(logging.Handler):
 
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
-# Configure standard logging to use InterceptHandler
 logging.basicConfig(handlers=[InterceptHandler()], level=logging.WARNING, force=True)
 logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
 
@@ -45,112 +45,9 @@ _active_engine: Optional[Engine] = None
 _active_session_factory: Optional[sessionmaker] = None
 _active_save_path: Optional[str] = None
 
-
-class Base(DeclarativeBase):
-    """Base class for SQLAlchemy declarative models."""
-    pass
-
-
-class Team(Base):
-    """Team database model."""
-    __tablename__ = "teams"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    city: Mapped[str] = mapped_column(String(100), nullable=False)
-    nation: Mapped[str] = mapped_column(String(100), nullable=False)
-    stadium_name: Mapped[str] = mapped_column(String(100), nullable=False)
-
-    # One-to-many relationship: Team -> Players
-    players: Mapped[List["Player"]] = relationship(
-        "Player",
-        back_populates="team",
-        cascade="all, delete-orphan"
-    )
-
-    def __repr__(self) -> str:
-        return f"<Team(name={self.name!r}, city={self.city!r}, nation={self.nation!r}, stadium={self.stadium_name!r})>"
-
-
-# Association table for Player <-> Position (Many-to-Many)
-from sqlalchemy import Table, Column
-player_positions = Table(
-    "player_positions",
-    Base.metadata,
-    Column("player_id", ForeignKey("players.id", ondelete="CASCADE"), primary_key=True),
-    Column("position_id", ForeignKey("positions.id", ondelete="CASCADE"), primary_key=True)
-)
-
-
-class Position(Base):
-    """Position database model."""
-    __tablename__ = "positions"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-
-    # Many-to-many back-reference
-    players: Mapped[List["Player"]] = relationship(
-        "Player",
-        secondary=player_positions,
-        back_populates="preferred_positions"
-    )
-
-    def __repr__(self) -> str:
-        return f"<Position(name={self.name!r})>"
-
-
-class Player(Base):
-    """Player database model."""
-    __tablename__ = "players"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    surname: Mapped[str] = mapped_column(String(100), nullable=False)
-    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
-
-    # physical_attributes will store height, weight, speed, power as JSON
-    physical_attributes: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
-
-    # Many-to-one relationship: Player -> Team
-    team: Mapped["Team"] = relationship("Team", back_populates="players")
-
-    # Many-to-many relationship: Player -> Position
-    preferred_positions: Mapped[List["Position"]] = relationship(
-        "Position",
-        secondary=player_positions,
-        back_populates="players"
-    )
-
-    def __repr__(self) -> str:
-        return f"<Player(name={self.name!r}, surname={self.surname!r}, team_id={self.team_id})>"
-
-
-class GameStatus(Base):
-    """Game status database model storing the user's active career state."""
-    __tablename__ = "game_status"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
-    season: Mapped[int] = mapped_column(default=2026)
-    current_date: Mapped[str] = mapped_column(String(10), default="2026-04-01")
-
-    user_team: Mapped["Team"] = relationship("Team")
-
-    def __repr__(self) -> str:
-        return f"<GameStatus(user_team_id={self.user_team_id}, season={self.season}, date={self.current_date!r})>"
-
-
 STANDARD_POSITIONS = [
-    "Pitcher",
-    "Catcher",
-    "First Base",
-    "Second Base",
-    "Third Base",
-    "Shortstop",
-    "Left Field",
-    "Center Field",
-    "Right Field"
+    "Pitcher", "Catcher", "First Base", "Second Base", "Third Base",
+    "Shortstop", "Left Field", "Center Field", "Right Field"
 ]
 
 FIRST_NAMES = [
@@ -205,7 +102,6 @@ def generate_random_player(
         non_pitcher_positions = [p for name, p in pos_map.items() if name != "Pitcher"]
         chosen_positions.extend(random.sample(non_pitcher_positions, random.choice([1, 2])))
         
-    # Deduplicate positions by name
     seen = set()
     unique_preferred = []
     for p in chosen_positions:
@@ -221,8 +117,6 @@ def generate_random_player(
         preferred_positions=unique_preferred
     )
 
-
-# --- Save Manager & Engine Setup ---
 
 def get_save_dir() -> str:
     """Ensure the saves directory exists and return its path."""
