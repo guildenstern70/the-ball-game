@@ -1,5 +1,5 @@
 #
-# THE BALL GAME - Welcome & Game Screen Module
+# THE BALL GAME - Welcome, Team Selection, & Home Screen Module
 # Copyright (c) 2026 Alessio Saltarin
 #
 # This software is distributed under ISC License.
@@ -8,18 +8,24 @@
 
 import math
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPointF, QRectF
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPolygonF, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGraphicsOpacityEffect,
     QFrame, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView, QPushButton, QStackedWidget
+    QAbstractItemView, QPushButton, QStackedWidget, QDialog, QListWidget, QListWidgetItem,
+    QApplication
 )
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from loguru import logger
-from database import Session, engine, Team, Player, Position
+from database import (
+    Session, Team, Player, Position, GameStatus,
+    get_save_files, get_most_recent_save, get_engine,
+    get_teams_template_data, get_active_game_status
+)
+
 
 def get_team_logo_path(team_name: str) -> str:
     """Return the filesystem path for a team's logo image if it exists."""
@@ -29,31 +35,32 @@ def get_team_logo_path(team_name: str) -> str:
         return filepath
     return ""
 
+
 class BaseballDiamondWidget(QWidget):
     """Custom QWidget that renders a styled baseball field with animations."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(400, 400)
+        self.setFixedSize(360, 360)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         
         # Animation state variables
         self.tick = 0
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_animation)
-        self.timer.start(30)  # ~33 FPS (approx 3.6s cycle of 120 ticks)
+        self.timer.start(30)  # ~33 FPS
         
         # Dimensions and center point
-        self.cx = 200
-        self.cy = 220
-        self.r = 100
+        self.cx = 180
+        self.cy = 200
+        self.r = 90
         
         # Base coordinates
         self.home_plate = QPointF(self.cx, self.cy + self.r)
         self.first_base = QPointF(self.cx + self.r, self.cy)
         self.second_base = QPointF(self.cx, self.cy - self.r)
         self.third_base = QPointF(self.cx - self.r, self.cy)
-        self.pitcher_mound = QPointF(self.cx, self.cy + 20)
+        self.pitcher_mound = QPointF(self.cx, self.cy + 18)
 
     def update_animation(self) -> None:
         self.tick = (self.tick + 1) % 120
@@ -63,20 +70,20 @@ class BaseballDiamondWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # 1. Solid black background fill for entire widget
+        # Solid black background
         painter.fillRect(self.rect(), QColor("#000000"))
         
-        # 2. Outfield Grass Arc (centered at Home Plate, radius = 240)
-        R = 240
+        # Outfield Grass Arc
+        R = 220
         outfield_rect = QRectF(self.home_plate.x() - R, self.home_plate.y() - R, 2 * R, 2 * R)
         painter.setBrush(QBrush(QColor("#1e3f20")))
         painter.drawPie(outfield_rect, 45 * 16, 90 * 16)
         
-        # 3. Dirt Infield Track
+        # Dirt Infield Track
         painter.setBrush(QBrush(QColor("#8c6239")))
-        painter.drawEllipse(QPointF(self.cx, self.cy), 110, 110)
+        painter.drawEllipse(QPointF(self.cx, self.cy), 100, 100)
         
-        # 4. Infield Grass Diamond
+        # Infield Grass Diamond
         infield_grass = QPolygonF([
             self.home_plate,
             self.first_base,
@@ -86,10 +93,10 @@ class BaseballDiamondWidget(QWidget):
         painter.setBrush(QBrush(QColor("#2d6a4f")))
         painter.drawPolygon(infield_grass)
         
-        # 5. Foul lines & Baselines
+        # Foul lines & Baselines
         painter.setPen(QPen(QColor("#ffffff"), 2))
-        painter.drawLine(self.home_plate, QPointF(self.home_plate.x() - 170, self.home_plate.y() - 170))
-        painter.drawLine(self.home_plate, QPointF(self.home_plate.x() + 170, self.home_plate.y() - 170))
+        painter.drawLine(self.home_plate, QPointF(self.home_plate.x() - 150, self.home_plate.y() - 150))
+        painter.drawLine(self.home_plate, QPointF(self.home_plate.x() + 150, self.home_plate.y() - 150))
         
         painter.setPen(QPen(QColor("#ffffff"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(self.home_plate, self.first_base)
@@ -97,17 +104,17 @@ class BaseballDiamondWidget(QWidget):
         painter.drawLine(self.second_base, self.third_base)
         painter.drawLine(self.third_base, self.home_plate)
         
-        # 6. Pitcher's Mound
+        # Pitcher's Mound
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor("#a67c52")))
-        painter.drawEllipse(self.pitcher_mound, 14, 14)
+        painter.drawEllipse(self.pitcher_mound, 12, 12)
         painter.setPen(QPen(QColor("#ffffff"), 2))
         painter.drawLine(
-            QPointF(self.pitcher_mound.x() - 5, self.pitcher_mound.y()),
-            QPointF(self.pitcher_mound.x() + 5, self.pitcher_mound.y())
+            QPointF(self.pitcher_mound.x() - 4, self.pitcher_mound.y()),
+            QPointF(self.pitcher_mound.x() + 4, self.pitcher_mound.y())
         )
         
-        # 7. Bases
+        # Bases
         painter.setPen(QPen(QColor("#ffffff"), 1))
         painter.setBrush(QBrush(QColor("#ffffff")))
         
@@ -115,21 +122,21 @@ class BaseballDiamondWidget(QWidget):
             painter.save()
             painter.translate(base)
             painter.rotate(45)
-            painter.drawRect(-5, -5, 10, 10)
+            painter.drawRect(-4, -4, 8, 8)
             painter.restore()
             
         hp_poly = QPolygonF([
             QPointF(self.home_plate.x(), self.home_plate.y()),
-            QPointF(self.home_plate.x() - 6, self.home_plate.y() - 6),
-            QPointF(self.home_plate.x() - 6, self.home_plate.y() - 12),
-            QPointF(self.home_plate.x() + 6, self.home_plate.y() - 12),
-            QPointF(self.home_plate.x() + 6, self.home_plate.y() - 6),
+            QPointF(self.home_plate.x() - 5, self.home_plate.y() - 5),
+            QPointF(self.home_plate.x() - 5, self.home_plate.y() - 10),
+            QPointF(self.home_plate.x() + 5, self.home_plate.y() - 10),
+            QPointF(self.home_plate.x() + 5, self.home_plate.y() - 5),
         ])
         painter.drawPolygon(hp_poly)
         
-        # 8. Animation States
+        # Animation States
         ball_pos = None
-        ball_size = 6.0
+        ball_size = 5.0
         draw_bat = False
         bat_angle = 0.0
         draw_hit_flash = False
@@ -156,8 +163,8 @@ class BaseballDiamondWidget(QWidget):
             
         elif 60 <= self.tick < 95:
             t = (self.tick - 60) / 35.0
-            target_x = self.cx + 140
-            target_y = self.cy - 120
+            target_x = self.cx + 120
+            target_y = self.cy - 100
             
             start_x = self.home_plate.x()
             start_y = self.home_plate.y() - 8
@@ -167,48 +174,161 @@ class BaseballDiamondWidget(QWidget):
             ball_pos = QPointF(x, y)
             
             height_factor = 4.0 * t * (1.0 - t)
-            ball_size = 5.0 + 10.0 * height_factor
+            ball_size = 5.0 + 9.0 * height_factor
             
         if draw_bat:
             painter.save()
             painter.translate(self.home_plate.x(), self.home_plate.y() - 8)
             painter.rotate(bat_angle)
             painter.setPen(QPen(QColor("#d9a05b"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            painter.drawLine(0, 0, 24, 0)
+            painter.drawLine(0, 0, 22, 0)
             painter.restore()
             
         if draw_hit_flash:
             flash_opacity = 1.0 - ((self.tick - 50) / 10.0)
             painter.setBrush(QBrush(QColor(255, 255, 150, int(255 * flash_opacity))))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(QPointF(self.home_plate.x(), self.home_plate.y() - 8), 18, 18)
+            painter.drawEllipse(QPointF(self.home_plate.x(), self.home_plate.y() - 8), 16, 16)
             
             painter.setPen(QPen(QColor(255, 225, 100, int(255 * flash_opacity))))
-            font = QFont("Impact", 13)
+            font = QFont("Impact", 12)
             painter.setFont(font)
-            painter.drawText(int(self.home_plate.x()) - 24, int(self.home_plate.y()) - 22, "CRACK!")
+            painter.drawText(int(self.home_plate.x()) - 22, int(self.home_plate.y()) - 20, "CRACK!")
             
         if ball_pos is not None:
             painter.setPen(QPen(QColor("#b5b5b5"), 1))
             painter.setBrush(QBrush(QColor("#ffffff")))
             painter.drawEllipse(ball_pos, ball_size / 2.0, ball_size / 2.0)
             
-            if ball_size > 8:
+            if ball_size > 7:
                 painter.setPen(QPen(QColor("#cc0000"), 1))
                 r_ball = ball_size / 2.0
                 rect = QRectF(ball_pos.x() - r_ball, ball_pos.y() - r_ball, ball_size, ball_size)
                 painter.drawArc(rect, 45 * 16, 90 * 16)
                 painter.drawArc(rect, 225 * 16, 90 * 16)
 
+
+class SaveSelectorDialog(QDialog):
+    """Modal dialog displaying available SQLite save games for user selection."""
+
+    def __init__(self, saves: List[Dict[str, Any]], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Save Game")
+        self.setMinimumSize(480, 340)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.selected_save_path: Optional[str] = None
+
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0b140e;
+                border: 2px solid #1e3f20;
+                border-radius: 10px;
+            }
+            QLabel#DialogTitle {
+                color: #e8f5e9;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                font-size: 20px;
+                font-weight: bold;
+            }
+            QListWidget {
+                background-color: #111c15;
+                border: 1px solid #1e3f20;
+                border-radius: 8px;
+                color: #e8f5e9;
+                font-size: 14px;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 10px 14px;
+                border-bottom: 1px solid #182b1e;
+            }
+            QListWidget::item:selected {
+                background-color: #1e3f20;
+                color: #81c784;
+                border-radius: 4px;
+            }
+            QListWidget::item:hover {
+                background-color: #16261d;
+            }
+            QPushButton {
+                background-color: #111c15;
+                border: 1px solid #2d6a4f;
+                border-radius: 6px;
+                color: #e8f5e9;
+                padding: 8px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1e3f20;
+                border: 1px solid #81c784;
+            }
+            QPushButton#PrimaryBtn {
+                background-color: #2d6a4f;
+                border: 1px solid #81c784;
+            }
+            QPushButton#PrimaryBtn:hover {
+                background-color: #40916c;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(14)
+
+        title = QLabel("SELECT A SAVE GAME")
+        title.setObjectName("DialogTitle")
+        layout.addWidget(title)
+
+        self.list_widget = QListWidget()
+        self.saves = saves
+
+        for save_info in saves:
+            filename = save_info["filename"]
+            time_str = save_info["formatted_time"]
+            item_text = f"💾  {filename}   ({time_str})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.ItemDataRole.UserRole, save_info["filepath"])
+            self.list_widget.addItem(item)
+
+        if saves:
+            self.list_widget.setCurrentRow(0)
+
+        self.list_widget.itemDoubleClicked.connect(self.accept_selection)
+        layout.addWidget(self.list_widget)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch(1)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        load_btn = QPushButton("Load Save")
+        load_btn.setObjectName("PrimaryBtn")
+        load_btn.clicked.connect(self.accept_selection)
+        btn_layout.addWidget(load_btn)
+
+        layout.addLayout(btn_layout)
+
+    def accept_selection(self):
+        selected_items = self.list_widget.selectedItems()
+        if selected_items:
+            self.selected_save_path = selected_items[0].data(Qt.ItemDataRole.UserRole)
+            self.accept()
+
+
 class WelcomeScreen(QWidget):
-    """Welcome screen widget containing title, subtitle, animated field, and pulsing prompt."""
-    started = pyqtSignal()
-    
+    """Welcome screen widget presenting game title, diamond animation, and New/Continue/Load menu."""
+    new_game_requested = pyqtSignal()
+    continue_requested = pyqtSignal()
+    load_game_requested = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        
+
         self.setStyleSheet("""
             QWidget {
                 background-color: #000000;
@@ -218,8 +338,8 @@ class WelcomeScreen(QWidget):
             }
             QLabel#TitleLabel {
                 color: #e8f5e9;
-                font-family: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
-                font-size: 46px;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                font-size: 44px;
                 font-weight: 800;
                 letter-spacing: 2px;
                 qproperty-alignment: AlignCenter;
@@ -227,274 +347,254 @@ class WelcomeScreen(QWidget):
             QLabel#SubtitleLabel {
                 color: #81c784;
                 font-family: 'Helvetica Neue', Arial, sans-serif;
-                font-size: 18px;
+                font-size: 17px;
                 font-style: italic;
                 letter-spacing: 1px;
                 qproperty-alignment: AlignCenter;
             }
-            QLabel#PromptLabel {
-                color: #a5d6a7;
+            QPushButton.MenuBtn {
+                background-color: #111c15;
+                border: 2px solid #1e3f20;
+                border-radius: 8px;
+                color: #e8f5e9;
                 font-family: 'Helvetica Neue', Arial, sans-serif;
-                font-size: 16px;
-                font-weight: 500;
-                letter-spacing: 3px;
-                qproperty-alignment: AlignCenter;
-                margin-top: 15px;
+                font-size: 15px;
+                font-weight: bold;
+                letter-spacing: 1px;
+                padding: 12px 30px;
+                min-width: 220px;
+            }
+            QPushButton.MenuBtn:hover {
+                background-color: #1b3823;
+                border: 2px solid #81c784;
+                color: #ffffff;
+            }
+            QPushButton.MenuBtnPrimary {
+                background-color: #1b4328;
+                border: 2px solid #2d6a4f;
+                color: #ffffff;
+            }
+            QPushButton.MenuBtnPrimary:hover {
+                background-color: #2d6a4f;
+                border: 2px solid #81c784;
             }
         """)
-        
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(50, 40, 50, 40)
-        main_layout.setSpacing(10)
-        
-        main_layout.addStretch(1)
-        
+
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(50, 30, 50, 30)
+        self.main_layout.setSpacing(10)
+
+        self.main_layout.addStretch(1)
+
         self.title_label = QLabel("THE BALL GAME")
         self.title_label.setObjectName("TitleLabel")
-        main_layout.addWidget(self.title_label)
-        
+        self.main_layout.addWidget(self.title_label)
+
         self.subtitle_label = QLabel("A tiny baseball simulator")
         self.subtitle_label.setObjectName("SubtitleLabel")
-        main_layout.addWidget(self.subtitle_label)
-        
-        main_layout.addStretch(1)
-        
+        self.main_layout.addWidget(self.subtitle_label)
+
+        self.main_layout.addStretch(1)
+
         self.diamond_widget = BaseballDiamondWidget()
         diamond_container = QHBoxLayout()
         diamond_container.addStretch(1)
         diamond_container.addWidget(self.diamond_widget)
         diamond_container.addStretch(1)
-        main_layout.addLayout(diamond_container)
-        
-        main_layout.addStretch(1)
-        
-        self.prompt_label = QLabel("HIT ANY KEY TO START")
-        self.prompt_label.setObjectName("PromptLabel")
-        main_layout.addWidget(self.prompt_label)
-        
-        self.opacity_effect = QGraphicsOpacityEffect(self.prompt_label)
-        self.prompt_label.setGraphicsEffect(self.opacity_effect)
-        
-        self.pulse_timer = QTimer(self)
-        self.pulse_timer.timeout.connect(self.update_pulse)
-        self.pulse_time = 0.0
-        self.pulse_timer.start(50)
-        
-        main_layout.addStretch(1)
-        
+        self.main_layout.addLayout(diamond_container)
+
+        self.main_layout.addStretch(1)
+
+        # Dynamic Menu Button Container
+        self.menu_container = QVBoxLayout()
+        self.menu_container.setSpacing(10)
+        self.menu_container.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.main_layout.addLayout(self.menu_container)
+        self.main_layout.addStretch(1)
+
+        self.refresh_menu()
+
+    def refresh_menu(self) -> None:
+        """Clear and rebuild action menu buttons based on available save files."""
+        while self.menu_container.count():
+            item = self.menu_container.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+        saves = get_save_files()
+
+        if saves:
+            latest_file = saves[0]["filename"]
+            btn_continue = QPushButton(f"CONTINUE  ({latest_file})")
+            btn_continue.setProperty("class", "MenuBtn MenuBtnPrimary")
+            btn_continue.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_continue.clicked.connect(self._on_continue_clicked)
+            self.menu_container.addWidget(btn_continue, 0, Qt.AlignmentFlag.AlignCenter)
+
+            btn_new = QPushButton("NEW GAME")
+            btn_new.setProperty("class", "MenuBtn")
+            btn_new.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_new.clicked.connect(self._on_new_game_clicked)
+            self.menu_container.addWidget(btn_new, 0, Qt.AlignmentFlag.AlignCenter)
+
+            btn_load = QPushButton("LOAD GAME...")
+            btn_load.setProperty("class", "MenuBtn")
+            btn_load.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_load.clicked.connect(self._on_load_game_clicked)
+            self.menu_container.addWidget(btn_load, 0, Qt.AlignmentFlag.AlignCenter)
+        else:
+            btn_new = QPushButton("NEW GAME")
+            btn_new.setProperty("class", "MenuBtn MenuBtnPrimary")
+            btn_new.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn_new.clicked.connect(self._on_new_game_clicked)
+            self.menu_container.addWidget(btn_new, 0, Qt.AlignmentFlag.AlignCenter)
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self.refresh_menu()
         self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
-        
-    def update_pulse(self) -> None:
-        self.pulse_time += 0.08
-        opacity = 0.25 + 0.75 * abs(math.sin(self.pulse_time))
-        self.opacity_effect.setOpacity(opacity)
-        
-    def keyPressEvent(self, event) -> None:
-        if not event.isAutoRepeat():
-            logger.info("Key press detected on welcome screen. Transitioning...")
-            self.started.emit()
-            event.accept()
-            
-    def mousePressEvent(self, event) -> None:
-        logger.info("Mouse click detected on welcome screen. Transitioning...")
-        self.started.emit()
-        event.accept()
+
+    def _on_continue_clicked(self) -> None:
+        logger.info("User selected CONTINUE game.")
+        self.continue_requested.emit()
+
+    def _on_new_game_clicked(self) -> None:
+        logger.info("User selected NEW GAME.")
+        self.new_game_requested.emit()
+
+    def _on_load_game_clicked(self) -> None:
+        saves = get_save_files()
+        if not saves:
+            return
+
+        dialog = SaveSelectorDialog(saves, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_save_path:
+            logger.info(f"User selected save file to load: {dialog.selected_save_path}")
+            self.load_game_requested.emit(dialog.selected_save_path)
 
 
-class TeamCardWidget(QFrame):
-    """Clickable card displaying a team's logo, name, city, stadium, and roster badge."""
-    clicked = pyqtSignal(int)
-    
-    def __init__(self, team: Team, parent=None):
+# --- Team Selection Screen ---
+
+class TeamSelectCardWidget(QFrame):
+    """Clickable and selectable card for picking a franchise in TeamSelectScreen."""
+    selected_signal = pyqtSignal(str)
+
+    def __init__(self, team_data: Dict[str, Any], parent=None):
         super().__init__(parent)
-        self.team_id = team.id
+        self.team_name = team_data["name"]
+        self.is_selected = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(220, 230)
+        self.setFixedSize(220, 220)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        
-        self.setStyleSheet("""
-            TeamCardWidget {
-                background-color: #111c15;
-                border: 2px solid #1e3f20;
-                border-radius: 12px;
-            }
-            TeamCardWidget:hover {
-                background-color: #16261d;
-                border: 2px solid #81c784;
-            }
-            QLabel {
-                background-color: transparent;
-            }
-            QLabel#TeamNameLabel {
-                color: #e8f5e9;
-                font-family: 'Montserrat', Arial, sans-serif;
-                font-size: 15px;
-                font-weight: bold;
-                qproperty-alignment: AlignCenter;
-            }
-            QLabel#TeamMetaLabel {
-                color: #81c784;
-                font-family: Arial, sans-serif;
-                font-size: 13px;
-                qproperty-alignment: AlignCenter;
-            }
-            QLabel#StadiumLabel {
-                color: #a5d6a7;
-                font-family: Arial, sans-serif;
-                font-size: 11px;
-                font-style: italic;
-                qproperty-alignment: AlignCenter;
-            }
-            QLabel#RosterBadge {
-                background-color: #1b2e24;
-                border: 1px solid #2d6a4f;
-                border-radius: 10px;
-                color: #e8f5e9;
-                font-size: 11px;
-                font-weight: bold;
-                padding: 3px 10px;
-                qproperty-alignment: AlignCenter;
-            }
-        """)
-        
+
+        self.update_style()
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 14, 12, 14)
-        layout.setSpacing(4)
-        
-        # Logo Label
+        layout.setContentsMargins(14, 16, 14, 16)
+        layout.setSpacing(6)
+
         logo_label = QLabel()
         logo_label.setFixedSize(64, 64)
-        logo_path = get_team_logo_path(team.name)
+        logo_path = get_team_logo_path(self.team_name)
         if logo_path:
             pix = QPixmap(logo_path).scaled(
-                64, 64, 
-                Qt.AspectRatioMode.KeepAspectRatio, 
+                64, 64,
+                Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
             logo_label.setPixmap(pix)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
+
         logo_container = QHBoxLayout()
         logo_container.addStretch(1)
         logo_container.addWidget(logo_label)
         logo_container.addStretch(1)
         layout.addLayout(logo_container)
-        
-        layout.addSpacing(2)
-        
-        name_label = QLabel(team.name)
-        name_label.setObjectName("TeamNameLabel")
+
+        name_label = QLabel(self.team_name)
+        name_label.setObjectName("TeamName")
         name_label.setWordWrap(True)
         layout.addWidget(name_label)
-        
-        meta_label = QLabel(f"{team.city}, {team.nation}")
-        meta_label.setObjectName("TeamMetaLabel")
+
+        meta_label = QLabel(f"{team_data['city']}, {team_data['nation']}")
+        meta_label.setObjectName("TeamMeta")
         layout.addWidget(meta_label)
-        
-        stadium_label = QLabel(f"🏟 {team.stadium_name}")
-        stadium_label.setObjectName("StadiumLabel")
+
+        stadium_label = QLabel(f"🏟 {team_data['stadium_name']}")
+        stadium_label.setObjectName("TeamStadium")
         layout.addWidget(stadium_label)
-        
+
         layout.addStretch(1)
-        
-        roster_badge = QLabel("26 PLAYERS")
-        roster_badge.setObjectName("RosterBadge")
-        badge_container = QHBoxLayout()
-        badge_container.addStretch(1)
-        badge_container.addWidget(roster_badge)
-        badge_container.addStretch(1)
-        layout.addLayout(badge_container)
+
+    def set_selected(self, selected: bool) -> None:
+        self.is_selected = selected
+        self.update_style()
+
+    def update_style(self) -> None:
+        if self.is_selected:
+            self.setStyleSheet("""
+                TeamSelectCardWidget {
+                    background-color: #1b3823;
+                    border: 3px solid #81c784;
+                    border-radius: 12px;
+                }
+                QLabel { background-color: transparent; }
+                QLabel#TeamName { color: #ffffff; font-family: 'Helvetica Neue', Arial; font-size: 16px; font-weight: bold; qproperty-alignment: AlignCenter; }
+                QLabel#TeamMeta { color: #a5d6a7; font-size: 13px; qproperty-alignment: AlignCenter; }
+                QLabel#TeamStadium { color: #81c784; font-size: 11px; font-style: italic; qproperty-alignment: AlignCenter; }
+            """)
+        else:
+            self.setStyleSheet("""
+                TeamSelectCardWidget {
+                    background-color: #111c15;
+                    border: 2px solid #1e3f20;
+                    border-radius: 12px;
+                }
+                TeamSelectCardWidget:hover {
+                    background-color: #16261d;
+                    border: 2px solid #81c784;
+                }
+                QLabel { background-color: transparent; }
+                QLabel#TeamName { color: #e8f5e9; font-family: 'Helvetica Neue', Arial; font-size: 15px; font-weight: bold; qproperty-alignment: AlignCenter; }
+                QLabel#TeamMeta { color: #81c784; font-size: 13px; qproperty-alignment: AlignCenter; }
+                QLabel#TeamStadium { color: #a5d6a7; font-size: 11px; font-style: italic; qproperty-alignment: AlignCenter; }
+            """)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.team_id)
+            self.selected_signal.emit(self.team_name)
             event.accept()
         else:
             super().mousePressEvent(event)
 
 
-class TeamBrowserView(QWidget):
-    """Grid browser view displaying cards for all teams in the league."""
-    team_selected = pyqtSignal(int)
-    
+class TeamSelectScreen(QWidget):
+    """Screen presented when starting a new game, allowing the user to select their franchise team."""
+    team_chosen = pyqtSignal(str)
+    back_to_welcome = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        
+        self.selected_team_name: Optional[str] = None
+        self.cards: List[TeamSelectCardWidget] = []
+
         self.setStyleSheet("""
             QWidget {
                 background-color: #000000;
             }
-            QLabel {
-                background-color: transparent;
-            }
             QLabel#HeaderTitle {
                 color: #e8f5e9;
-                font-family: 'Montserrat', Arial, sans-serif;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
                 font-size: 28px;
                 font-weight: 800;
                 letter-spacing: 1px;
             }
             QLabel#HeaderSubtitle {
                 color: #81c784;
-                font-family: Arial, sans-serif;
                 font-size: 14px;
-            }
-        """)
-        
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(40, 30, 40, 30)
-        main_layout.setSpacing(15)
-        
-        header_title = QLabel("LEAGUE TEAMS")
-        header_title.setObjectName("HeaderTitle")
-        main_layout.addWidget(header_title)
-        
-        header_subtitle = QLabel("Click on a team card to inspect its active 26-player roster and physical stats")
-        header_subtitle.setObjectName("HeaderSubtitle")
-        main_layout.addWidget(header_subtitle)
-        
-        grid_container = QHBoxLayout()
-        grid_container.addStretch(1)
-        
-        grid_layout = QGridLayout()
-        grid_layout.setSpacing(20)
-        
-        try:
-            with Session(engine) as session:
-                teams = session.query(Team).all()
-                for idx, team in enumerate(teams):
-                    card = TeamCardWidget(team)
-                    card.clicked.connect(self.team_selected.emit)
-                    row = idx // 3
-                    col = idx % 3
-                    grid_layout.addWidget(card, row, col)
-        except Exception as e:
-            logger.error(f"Error querying teams for browser: {e}")
-            
-        grid_container.addLayout(grid_layout)
-        grid_container.addStretch(1)
-        
-        main_layout.addLayout(grid_container)
-        main_layout.addStretch(1)
-
-
-class TeamDetailView(QWidget):
-    """Detailed view showing team header banner and 26-player roster table."""
-    back_requested = pyqtSignal()
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #000000;
-            }
-            QLabel {
-                background-color: transparent;
             }
             QPushButton#BackButton {
                 background-color: #111c15;
@@ -509,195 +609,423 @@ class TeamDetailView(QWidget):
                 background-color: #1e3f20;
                 border: 1px solid #81c784;
             }
-            QLabel#TeamNameHeader {
-                color: #e8f5e9;
-                font-family: 'Montserrat', Arial, sans-serif;
-                font-size: 30px;
-                font-weight: 800;
+            QPushButton#ConfirmButton {
+                background-color: #1b4328;
+                border: 2px solid #81c784;
+                border-radius: 8px;
+                color: #ffffff;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                font-size: 16px;
+                font-weight: bold;
+                padding: 12px 36px;
             }
-            QLabel#TeamSubHeader {
-                color: #81c784;
-                font-size: 14px;
+            QPushButton#ConfirmButton:hover {
+                background-color: #2d6a4f;
+                border: 2px solid #a5d6a7;
             }
-            QTableWidget {
+            QPushButton#ConfirmButton:disabled {
                 background-color: #111c15;
                 border: 1px solid #1e3f20;
-                border-radius: 8px;
-                gridline-color: #1e3f20;
-                color: #ffffff;
-                font-size: 13px;
-            }
-            QHeaderView::section {
-                background-color: #1b2e24;
-                color: #81c784;
-                font-weight: bold;
-                padding: 6px;
-                border: 1px solid #1e3f20;
-            }
-            QTableWidget::item {
-                padding: 4px;
+                color: #555555;
             }
         """)
-        
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(35, 20, 35, 20)
-        self.main_layout.setSpacing(12)
-        
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(40, 25, 40, 25)
+        main_layout.setSpacing(15)
+
         # Top Bar
         top_bar = QHBoxLayout()
-        back_btn = QPushButton("← Back to Teams")
+        back_btn = QPushButton("← Back to Menu")
         back_btn.setObjectName("BackButton")
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        back_btn.clicked.connect(self.back_requested.emit)
+        back_btn.clicked.connect(self.back_to_welcome.emit)
         top_bar.addWidget(back_btn)
         top_bar.addStretch(1)
-        self.main_layout.addLayout(top_bar)
-        
-        # Banner Container
-        self.banner_layout = QHBoxLayout()
-        self.banner_layout.setSpacing(20)
-        
-        self.logo_label = QLabel()
-        self.logo_label.setFixedSize(80, 80)
-        self.banner_layout.addWidget(self.logo_label)
-        
-        info_layout = QVBoxLayout()
-        info_layout.setSpacing(4)
-        
-        self.name_label = QLabel()
-        self.name_label.setObjectName("TeamNameHeader")
-        info_layout.addWidget(self.name_label)
-        
-        self.meta_label = QLabel()
-        self.meta_label.setObjectName("TeamSubHeader")
-        info_layout.addWidget(self.meta_label)
-        
-        self.banner_layout.addLayout(info_layout)
-        self.banner_layout.addStretch(1)
-        
-        self.main_layout.addLayout(self.banner_layout)
-        
-        # Roster Table
-        self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels([
-            "Player Name", "Preferred Position(s)", "Height", "Weight", "Speed Rating", "Power Rating"
-        ])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        
-        self.main_layout.addWidget(self.table)
-        
-    def load_team(self, team_id: int) -> None:
-        """Load and render full team details and 26-player roster into the table."""
-        with Session(engine) as session:
-            team = session.scalar(
-                select(Team)
-                .where(Team.id == team_id)
-                .options(joinedload(Team.players).joinedload(Player.preferred_positions))
-            )
-            if not team:
-                return
-                
-            self.name_label.setText(team.name)
-            self.meta_label.setText(
-                f"{team.city}, {team.nation}  |  Stadium: {team.stadium_name}  |  Roster Size: {len(team.players)} Players"
-            )
-            
-            logo_path = get_team_logo_path(team.name)
-            if logo_path:
-                pix = QPixmap(logo_path).scaled(
-                    80, 80, 
-                    Qt.AspectRatioMode.KeepAspectRatio, 
-                    Qt.TransformationMode.SmoothTransformation
-                )
-                self.logo_label.setPixmap(pix)
-            else:
-                self.logo_label.clear()
-                
-            # Sort players: Pitchers first, then Position Players, then by surname
-            players = list(team.players)
-            pitchers = [p for p in players if any(pos.name == "Pitcher" for pos in p.preferred_positions)]
-            pos_players = [p for p in players if p not in pitchers]
-            
-            pitchers.sort(key=lambda p: (p.surname, p.name))
-            pos_players.sort(key=lambda p: (p.surname, p.name))
-            
-            all_sorted = pitchers + pos_players
-            
-            self.table.setRowCount(len(all_sorted))
-            
-            for row, p in enumerate(all_sorted):
-                # Name
-                name_item = QTableWidgetItem(f"{p.name} {p.surname}")
-                name_item.setForeground(QColor("#e8f5e9"))
-                
-                # Positions
-                pos_names = ", ".join(pos.name for pos in p.preferred_positions)
-                pos_item = QTableWidgetItem(pos_names)
-                if "Pitcher" in pos_names:
-                    pos_item.setForeground(QColor("#81c784"))
-                else:
-                    pos_item.setForeground(QColor("#a5d6a7"))
-                    
-                attrs = p.physical_attributes or {}
-                h_item = QTableWidgetItem(f"{attrs.get('height_cm', '-')} cm")
-                w_item = QTableWidgetItem(f"{attrs.get('weight_kg', '-')} kg")
-                s_item = QTableWidgetItem(str(attrs.get('speed', '-')))
-                p_item = QTableWidgetItem(str(attrs.get('power', '-')))
-                
-                for col_idx, item in enumerate([name_item, pos_item, h_item, w_item, s_item, p_item]):
-                    align = (
-                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter 
-                        if col_idx == 0 
-                        else Qt.AlignmentFlag.AlignCenter
-                    )
-                    item.setTextAlignment(align)
-                    self.table.setItem(row, col_idx, item)
+        main_layout.addLayout(top_bar)
+
+        header_title = QLabel("CHOOSE YOUR TEAM")
+        header_title.setObjectName("HeaderTitle")
+        main_layout.addWidget(header_title)
+
+        header_subtitle = QLabel("Select the franchise you will manage for your baseball career")
+        header_subtitle.setObjectName("HeaderSubtitle")
+        main_layout.addWidget(header_subtitle)
+
+        # Grid of Team Cards
+        grid_container = QHBoxLayout()
+        grid_container.addStretch(1)
+
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(20)
+
+        teams_data = get_teams_template_data()
+        for idx, team_info in enumerate(teams_data):
+            card = TeamSelectCardWidget(team_info)
+            card.selected_signal.connect(self.on_team_card_selected)
+            self.cards.append(card)
+            row = idx // 3
+            col = idx % 3
+            grid_layout.addWidget(card, row, col)
+
+        grid_container.addLayout(grid_layout)
+        grid_container.addStretch(1)
+
+        main_layout.addLayout(grid_container)
+        main_layout.addStretch(1)
+
+        # Bottom Confirm Bar
+        bottom_bar = QHBoxLayout()
+        bottom_bar.addStretch(1)
+
+        self.confirm_btn = QPushButton("SELECT A TEAM ABOVE")
+        self.confirm_btn.setObjectName("ConfirmButton")
+        self.confirm_btn.setDisabled(True)
+        self.confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.confirm_btn.clicked.connect(self.on_confirm_clicked)
+        bottom_bar.addWidget(self.confirm_btn)
+
+        bottom_bar.addStretch(1)
+        main_layout.addLayout(bottom_bar)
+
+    def on_team_card_selected(self, team_name: str) -> None:
+        self.selected_team_name = team_name
+        for card in self.cards:
+            card.set_selected(card.team_name == team_name)
+
+        self.confirm_btn.setEnabled(True)
+        self.confirm_btn.setText(f"START CAREER WITH {team_name.upper()}")
+
+    def on_confirm_clicked(self) -> None:
+        if self.selected_team_name:
+            logger.info(f"Team selected: '{self.selected_team_name}'. Emitting team_chosen.")
+            self.team_chosen.emit(self.selected_team_name)
 
 
-class GameScreen(QWidget):
-    """Main game screen managing internal navigation between Team Browser and Team Detail views."""
-    back_to_menu = pyqtSignal()
-    
+# --- Settings Dialog ---
+
+class SettingsDialog(QDialog):
+    """Settings modal dialog accessible from the Home Screen."""
+    main_menu_requested = pyqtSignal()
+    exit_game_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setFixedSize(380, 280)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0b140e;
+                border: 2px solid #1e3f20;
+                border-radius: 10px;
+            }
+            QLabel#Title {
+                color: #e8f5e9;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                font-size: 22px;
+                font-weight: bold;
+                qproperty-alignment: AlignCenter;
+            }
+            QPushButton.SettingsBtn {
+                background-color: #111c15;
+                border: 2px solid #1e3f20;
+                border-radius: 8px;
+                color: #e8f5e9;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 10px;
+            }
+            QPushButton.SettingsBtn:hover {
+                background-color: #1e3f20;
+                border: 2px solid #81c784;
+            }
+            QPushButton#ExitBtn {
+                background-color: #2b1111;
+                border: 2px solid #5c1e1e;
+                color: #ff8a8a;
+            }
+            QPushButton#ExitBtn:hover {
+                background-color: #421616;
+                border: 2px solid #ff4d4d;
+                color: #ffffff;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(30, 25, 30, 25)
+        layout.setSpacing(12)
+
+        title = QLabel("SETTINGS & OPTIONS")
+        title.setObjectName("Title")
+        layout.addWidget(title)
+
+        layout.addStretch(1)
+
+        menu_btn = QPushButton("🏠  Return to Main Menu")
+        menu_btn.setProperty("class", "SettingsBtn")
+        menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        menu_btn.clicked.connect(self._on_main_menu)
+        layout.addWidget(menu_btn)
+
+        exit_btn = QPushButton("🚪  Exit Game")
+        exit_btn.setObjectName("ExitBtn")
+        exit_btn.setProperty("class", "SettingsBtn")
+        exit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        exit_btn.clicked.connect(self._on_exit_game)
+        layout.addWidget(exit_btn)
+
+        resume_btn = QPushButton("Close Settings")
+        resume_btn.setProperty("class", "SettingsBtn")
+        resume_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        resume_btn.clicked.connect(self.reject)
+        layout.addWidget(resume_btn)
+
+        layout.addStretch(1)
+
+    def _on_main_menu(self):
+        self.accept()
+        self.main_menu_requested.emit()
+
+    def _on_exit_game(self):
+        self.accept()
+        self.exit_game_requested.emit()
+
+
+# --- Home Screen Dashboard ---
+
+class ActionTileWidget(QFrame):
+    """Interactive / Disabled tile on Home Screen representing major game functions."""
+    clicked = pyqtSignal()
+
+    def __init__(self, icon: str, title: str, subtitle: str, enabled: bool = True, parent=None):
+        super().__init__(parent)
+        self.is_tile_enabled = enabled
+        self.setFixedSize(220, 160)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        if enabled:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setStyleSheet("""
+                ActionTileWidget {
+                    background-color: #111c15;
+                    border: 2px solid #1e3f20;
+                    border-radius: 12px;
+                }
+                ActionTileWidget:hover {
+                    background-color: #16261d;
+                    border: 2px solid #81c784;
+                }
+                QLabel { background-color: transparent; }
+                QLabel#TileIcon { font-size: 32px; qproperty-alignment: AlignCenter; }
+                QLabel#TileTitle { color: #e8f5e9; font-family: 'Helvetica Neue', Arial; font-size: 16px; font-weight: bold; qproperty-alignment: AlignCenter; }
+                QLabel#TileSubtitle { color: #81c784; font-size: 12px; qproperty-alignment: AlignCenter; }
+            """)
+        else:
+            self.setStyleSheet("""
+                ActionTileWidget {
+                    background-color: #0d140e;
+                    border: 1px dashed #1a2e20;
+                    border-radius: 12px;
+                }
+                QLabel { background-color: transparent; }
+                QLabel#TileIcon { font-size: 30px; opacity: 0.4; qproperty-alignment: AlignCenter; }
+                QLabel#TileTitle { color: #556b5b; font-family: 'Helvetica Neue', Arial; font-size: 15px; font-weight: bold; qproperty-alignment: AlignCenter; }
+                QLabel#TileSubtitle { color: #3a4d3f; font-size: 11px; font-style: italic; qproperty-alignment: AlignCenter; }
+                QLabel#Badge { background-color: #16261b; color: #556b5b; border-radius: 6px; font-size: 10px; font-weight: bold; padding: 2px 8px; qproperty-alignment: AlignCenter; }
+            """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 16, 14, 16)
+        layout.setSpacing(6)
+
+        icon_label = QLabel(icon)
+        icon_label.setObjectName("TileIcon")
+        layout.addWidget(icon_label)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("TileTitle")
+        layout.addWidget(title_label)
+
+        sub_label = QLabel(subtitle)
+        sub_label.setObjectName("TileSubtitle")
+        layout.addWidget(sub_label)
+
+        if not enabled:
+            badge = QLabel("COMING SOON")
+            badge.setObjectName("Badge")
+            badge_container = QHBoxLayout()
+            badge_container.addStretch(1)
+            badge_container.addWidget(badge)
+            badge_container.addStretch(1)
+            layout.addLayout(badge_container)
+
+        layout.addStretch(1)
+
+    def mousePressEvent(self, event) -> None:
+        if self.is_tile_enabled and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+
+class HomeScreen(QWidget):
+    """Central home dashboard screen displaying user's team status and main navigation tiles."""
+    back_to_menu_requested = pyqtSignal()
+    quit_game_requested = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.stack = QStackedWidget()
-        self.layout.addWidget(self.stack)
-        
-        self.browser_view = TeamBrowserView()
-        self.detail_view = TeamDetailView()
-        
-        self.stack.addWidget(self.browser_view)
-        self.stack.addWidget(self.detail_view)
-        
-        self.browser_view.team_selected.connect(self.show_team_detail)
-        self.detail_view.back_requested.connect(self.show_team_browser)
-        
-    def show_team_detail(self, team_id: int) -> None:
-        self.detail_view.load_team(team_id)
-        self.stack.setCurrentWidget(self.detail_view)
-        logger.info(f"Loaded details for team_id {team_id}")
-        
-    def show_team_browser(self) -> None:
-        self.stack.setCurrentWidget(self.browser_view)
-        logger.info("Returned to team browser view")
-        
-    def keyPressEvent(self, event) -> None:
-        if event.key() == Qt.Key.Key_Escape:
-            if self.stack.currentWidget() == self.detail_view:
-                self.show_team_browser()
-                event.accept()
-            else:
-                logger.info("Escape key pressed on team browser. Returning to welcome screen...")
-                self.back_to_menu.emit()
-                event.accept()
+
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #000000;
+            }
+            QLabel {
+                background-color: transparent;
+            }
+            QFrame#Banner {
+                background-color: #111c15;
+                border: 2px solid #1e3f20;
+                border-radius: 12px;
+            }
+            QLabel#TeamTitle {
+                color: #e8f5e9;
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                font-size: 32px;
+                font-weight: 800;
+            }
+            QLabel#TeamMeta {
+                color: #81c784;
+                font-size: 14px;
+            }
+            QLabel#StatusBadge {
+                background-color: #1b3823;
+                border: 1px solid #2d6a4f;
+                border-radius: 8px;
+                color: #e8f5e9;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 6px 14px;
+            }
+        """)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(40, 30, 40, 30)
+        main_layout.setSpacing(25)
+
+        # Header Team Banner
+        self.banner = QFrame()
+        self.banner.setObjectName("Banner")
+        banner_layout = QHBoxLayout(self.banner)
+        banner_layout.setContentsMargins(24, 20, 24, 20)
+        banner_layout.setSpacing(20)
+
+        self.logo_label = QLabel()
+        self.logo_label.setFixedSize(80, 80)
+        banner_layout.addWidget(self.logo_label)
+
+        info_layout = QVBoxLayout()
+        info_layout.setSpacing(4)
+
+        self.team_title = QLabel("MY TEAM")
+        self.team_title.setObjectName("TeamTitle")
+        info_layout.addWidget(self.team_title)
+
+        self.team_meta = QLabel("City, Nation  |  Stadium")
+        self.team_meta.setObjectName("TeamMeta")
+        info_layout.addWidget(self.team_meta)
+
+        banner_layout.addLayout(info_layout)
+        banner_layout.addStretch(1)
+
+        self.status_badge = QLabel("Season 2026  |  April 1, 2026")
+        self.status_badge.setObjectName("StatusBadge")
+        banner_layout.addWidget(self.status_badge)
+
+        main_layout.addWidget(self.banner)
+
+        # Action Tiles Grid
+        grid_container = QHBoxLayout()
+        grid_container.addStretch(1)
+
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(20)
+
+        # 1. View Calendar (Disabled)
+        calendar_tile = ActionTileWidget("📅", "View Calendar", "Schedule & Games", enabled=False)
+        grid_layout.addWidget(calendar_tile, 0, 0)
+
+        # 2. View Team (Disabled)
+        team_tile = ActionTileWidget("⚾", "View Team", "Roster & Statistics", enabled=False)
+        grid_layout.addWidget(team_tile, 0, 1)
+
+        # 3. Market (Disabled)
+        market_tile = ActionTileWidget("🛒", "Market", "Trades & Free Agency", enabled=False)
+        grid_layout.addWidget(market_tile, 1, 0)
+
+        # 4. Settings (Active)
+        settings_tile = ActionTileWidget("⚙️", "Settings", "Options & Menu", enabled=True)
+        settings_tile.clicked.connect(self.open_settings)
+        grid_layout.addWidget(settings_tile, 1, 1)
+
+        grid_container.addLayout(grid_layout)
+        grid_container.addStretch(1)
+
+        main_layout.addLayout(grid_container)
+        main_layout.addStretch(1)
+
+        self.reload_data()
+
+    def reload_data(self) -> None:
+        """Fetch active game status and populate team header banner."""
+        status_info = get_active_game_status()
+        if not status_info:
+            return
+
+        team_name = status_info["team_name"]
+        self.team_title.setText(team_name)
+        self.team_meta.setText(
+            f"{status_info['city']}, {status_info['nation']}   |   Stadium: {status_info['stadium_name']}"
+        )
+        self.status_badge.setText(
+            f"Season {status_info['season']}   |   {status_info['current_date']}"
+        )
+
+        logo_path = get_team_logo_path(team_name)
+        if logo_path:
+            pix = QPixmap(logo_path).scaled(
+                80, 80,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            self.logo_label.setPixmap(pix)
         else:
-            super().keyPressEvent(event)
+            self.logo_label.clear()
+
+    def open_settings(self) -> None:
+        dialog = SettingsDialog(self)
+        dialog.main_menu_requested.connect(self.back_to_menu_requested.emit)
+        dialog.exit_game_requested.connect(self.quit_game_requested.emit)
+        dialog.exec()
+
+
+# Maintain placeholder GameScreen for legacy views if needed
+class TeamBrowserView(QWidget):
+    team_selected = pyqtSignal(int)
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+class TeamDetailView(QWidget):
+    back_requested = pyqtSignal()
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+class GameScreen(QWidget):
+    back_to_menu = pyqtSignal()
+    def __init__(self, parent=None):
+        super().__init__(parent)

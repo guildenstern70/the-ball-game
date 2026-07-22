@@ -17,4 +17,4 @@ dependencies = [
 the-ball-game = "main:main"
 
 [tool.setuptools]
-py-modules = ["main"]
+py-modules = ["main", "database", "welcome_screen"]

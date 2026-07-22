@@ -45,5 +45,6 @@ pip-wheel-metadata/
 .spyproject/
 .ropeproject/
 
-# Database file
+# Database files and save games
 the_ball_game.db
+saves/*.db
