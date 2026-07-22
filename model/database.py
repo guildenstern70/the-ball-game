@@ -51,20 +51,46 @@ STANDARD_POSITIONS = [
 ]
 
 FIRST_NAMES = [
+    # American (40)
     "Aaron", "Cody", "Dansby", "Freddie", "Gerrit", "Giancarlo", "Ian", "Jarren",
     "Juan", "Logan", "Matt", "Mike", "Mookie", "Nico", "Patrick", "Rafael",
     "Shohei", "Trevor", "Triston", "Clayton", "Buster", "Bryce", "Ronald", "Jose",
     "Francisco", "Corey", "Marcus", "Justin", "Max", "Paul", "Christian", "Corbin",
-    "Bobby", "Adley", "Gunnar", "Yordan", "Kyle", "Zack", "Blake", "Dylan"
+    "Bobby", "Adley", "Gunnar", "Yordan", "Kyle", "Zack", "Blake", "Dylan",
+    # Mexican / Spanish (20)
+    "Alejandro", "Carlos", "Mateo", "Diego", "Javier", "Santiago", "Gabriel", "Luis",
+    "Fernando", "Rodrigo", "Miguel", "Eduardo", "Joaquin", "Adrian", "Ricardo", "Guillermo",
+    "Andres", "Esteban", "Tomas", "Raul",
+    # Italian (20)
+    "Alessandro", "Lorenzo", "Leonardo", "Francesco", "Andrea", "Mattia", "Filippo", "Davide",
+    "Marco", "Giuseppe", "Luca", "Antonio", "Federico", "Giovanni", "Stefano", "Roberto",
+    "Jacopo", "Matteo", "Gianluigi", "Enrico",
+    # French (20)
+    "Antoine", "Jean", "Pierre", "Lucas", "Louis", "Hugo", "Alexandre", "Julien",
+    "Maxime", "Nicolas", "Thomas", "Romain", "Arthur", "Baptiste", "Clement", "Mathieu",
+    "Guillaume", "Theo", "Quentin", "Henri"
 ]
 
 SURNAMES = [
+    # American (40)
     "Devers", "Duran", "Casas", "Story", "Judge", "Soto", "Cole", "Stanton",
     "Ohtani", "Betts", "Freeman", "Kershaw", "Bellinger", "Swanson", "Hoerner",
     "Happ", "Webb", "Chapman", "Yastrzemski", "Bailey", "Acuna", "Trout", "Harper",
     "Lindor", "Seager", "Semien", "Scherzer", "Verlander", "Goldschmidt", "Yelich",
     "Carroll", "Witt", "Rutschman", "Henderson", "Alvarez", "Tucker", "Wheeler",
-    "Snell", "Cease", "Arenado"
+    "Snell", "Cease", "Arenado",
+    # Mexican / Spanish (20)
+    "Rodriguez", "Hernandez", "Gonzalez", "Martinez", "Garcia", "Lopez", "Perez", "Sanchez",
+    "Ramirez", "Torres", "Flores", "Rivera", "Gomez", "Diaz", "Cruz", "Morales",
+    "Reyes", "Gutierrez", "Ortiz", "Mendoza",
+    # Italian (20)
+    "Rossi", "Russo", "Ferrari", "Esposito", "Bianchi", "Romano", "Colombo", "Ricci",
+    "Marino", "Greco", "Bruno", "Gallo", "Conti", "De Luca", "Mancini", "Costa",
+    "Giordano", "Rizzo", "Lombardi", "Moretti",
+    # French (20)
+    "Martin", "Bernard", "Petit", "Robert", "Richard", "Durand", "Dubois", "Moreau",
+    "Laurent", "Simon", "Michel", "Lefebvre", "Leroy", "Roux", "David", "Bertrand",
+    "Fournier", "Girard", "Bonnet", "Dupont"
 ]
 
 
@@ -312,9 +338,9 @@ def init_db_schema_and_seed() -> None:
     if _active_engine is None:
         raise RuntimeError("Cannot initialize database without an active database engine.")
 
-    EXPECTED_TEAMS = 6
+    EXPECTED_TEAMS = 12
     PLAYERS_PER_TEAM = 26
-    EXPECTED_TOTAL_PLAYERS = EXPECTED_TEAMS * PLAYERS_PER_TEAM  # 156
+    EXPECTED_TOTAL_PLAYERS = EXPECTED_TEAMS * PLAYERS_PER_TEAM  # 312
 
     Base.metadata.create_all(_active_engine)
 

@@ -34,5 +34,41 @@
     "city": "Atlanta",
     "nation": "USA",
     "stadium_name": "Truist Park"
+  },
+  {
+    "name": "Diablos Rojos de Mexico",
+    "city": "Mexico City",
+    "nation": "Mexico",
+    "stadium_name": "Estadio Alfredo Harp Helú"
+  },
+  {
+    "name": "Milano Panthers",
+    "city": "Milano",
+    "nation": "Italy",
+    "stadium_name": "Stadio Clemente Serpenti"
+  },
+  {
+    "name": "Paris Voyageurs",
+    "city": "Paris",
+    "nation": "France",
+    "stadium_name": "Stade de Pershing"
+  },
+  {
+    "name": "Toronto Blue Jays",
+    "city": "Toronto",
+    "nation": "Canada",
+    "stadium_name": "Rogers Centre"
+  },
+  {
+    "name": "St. Louis Cardinals",
+    "city": "St. Louis",
+    "nation": "USA",
+    "stadium_name": "Busch Stadium"
+  },
+  {
+    "name": "Roma Capitols",
+    "city": "Roma",
+    "nation": "Italy",
+    "stadium_name": "Stadio Steno Borghese"
   }
 ]

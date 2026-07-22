@@ -9,11 +9,11 @@
 import os
 from typing import List, Dict, Any, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap, QColor
+from PyQt6.QtGui import QPixmap, QColor, QPainter, QBrush, QPen, QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGridLayout,
     QPushButton, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView
+    QAbstractItemView, QScrollArea
 )
 from loguru import logger
 
@@ -32,6 +32,44 @@ def get_team_logo_path(team_name: str) -> str:
     if os.path.exists(filepath):
         return filepath
     return ""
+
+
+def get_team_logo_pixmap(team_name: str, size: int = 64) -> QPixmap:
+    """Return QPixmap for team logo PNG file if available, or generate a fallback circular initials emblem."""
+    logo_path = get_team_logo_path(team_name)
+    if logo_path:
+        pix = QPixmap(logo_path)
+        if not pix.isNull():
+            return pix.scaled(
+                size, size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+
+    # Fallback: Dynamic vector emblem badge with team initials
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    words = [w for w in team_name.split() if w.lower() not in ("de", "rojos", "of")]
+    if len(words) >= 2:
+        initials = (words[0][0] + words[-1][0]).upper()
+    else:
+        initials = team_name[:2].upper()
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    painter.setPen(QPen(QColor("#81c784"), 3))
+    painter.setBrush(QBrush(QColor("#111c15")))
+    painter.drawEllipse(3, 3, size - 6, size - 6)
+
+    painter.setPen(QColor("#e8f5e9"))
+    font = QFont("Helvetica Neue", int(size * 0.38), QFont.Weight.Bold)
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, initials)
+
+    painter.end()
+    return pixmap
 
 
 # --- Welcome Screen ---
@@ -215,14 +253,8 @@ class TeamSelectCardWidget(QFrame):
 
         logo_label = QLabel()
         logo_label.setFixedSize(64, 64)
-        logo_path = get_team_logo_path(self.team_name)
-        if logo_path:
-            pix = QPixmap(logo_path).scaled(
-                64, 64,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            logo_label.setPixmap(pix)
+        pix = get_team_logo_pixmap(self.team_name, size=64)
+        logo_label.setPixmap(pix)
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         logo_container = QHBoxLayout()
@@ -370,8 +402,33 @@ class TeamSelectScreen(QWidget):
         header_subtitle.setObjectName("HeaderSubtitle")
         main_layout.addWidget(header_subtitle)
 
-        # Grid of Team Cards
-        grid_container = QHBoxLayout()
+        # Scrollable Grid of Team Cards
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background-color: #111c15;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #1e3f20;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #81c784;
+            }
+        """)
+
+        scroll_content = QWidget()
+        scroll_content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        scroll_content.setStyleSheet("background-color: transparent;")
+
+        grid_container = QHBoxLayout(scroll_content)
         grid_container.addStretch(1)
 
         grid_layout = QGridLayout()
@@ -382,15 +439,15 @@ class TeamSelectScreen(QWidget):
             card = TeamSelectCardWidget(team_info)
             card.selected_signal.connect(self.on_team_card_selected)
             self.cards.append(card)
-            row = idx // 3
-            col = idx % 3
+            row = idx // 4
+            col = idx % 4
             grid_layout.addWidget(card, row, col)
 
         grid_container.addLayout(grid_layout)
         grid_container.addStretch(1)
 
-        main_layout.addLayout(grid_container)
-        main_layout.addStretch(1)
+        scroll_area.setWidget(scroll_content)
+        main_layout.addWidget(scroll_area)
 
         # Bottom Confirm Bar
         bottom_bar = QHBoxLayout()
@@ -625,16 +682,8 @@ class HomeScreen(QWidget):
             f"Season {status_info['season']}   |   {status_info['current_date']}"
         )
 
-        logo_path = get_team_logo_path(team_name)
-        if logo_path:
-            pix = QPixmap(logo_path).scaled(
-                80, 80,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            self.logo_label.setPixmap(pix)
-        else:
-            self.logo_label.clear()
+        pix = get_team_logo_pixmap(team_name, size=80)
+        self.logo_label.setPixmap(pix)
 
     def open_settings(self) -> None:
         win = self.window()

@@ -66,7 +66,7 @@ TheBallGame/
 - **`PlayerStats`**:
   - Counting stats: `hits` (H), `at_bats` (AB), `hit_by_pitch` (HBP), `home_runs` (HR), `plate_appearances` (PA), `runs` (R), `runs_batted_in` (RBI), `doubles` (2B), `triples` (3B), `walks` (BB).
   - Calculated properties: `batting_average` (BA), `on_base_percentage` (OBP), `slugging_percentage` (SLG), `on_base_plus_slugging` (OPS).
-- **Save Manager**: Manages `saves/savegame-DDMMYY-HHMMSS.db` files, dynamic engine binding, and complete roster seeding (6 teams x 26 players = 156 total with default zero stats).
+- **Save Manager**: Manages `saves/savegame-DDMMYY-HHMMSS.db` files, dynamic engine binding, and complete roster seeding (12 teams x 26 players = 312 total with default zero stats and 100 international names/surnames).
 
 #### 2. Game Logic (`game/manager.py`)
 - **`GameManager`**: Orchestrates high-level career setup, loading recent save files, saving state, and status queries.
